@@ -1,4 +1,4 @@
-module DDA
+module DelayDifferentialAnalysis
 
 using Dates
 using UUIDs

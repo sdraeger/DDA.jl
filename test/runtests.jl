@@ -1,8 +1,8 @@
 using Test
-using DDA
+using DelayDifferentialAnalysis
 
 
-@testset "DDA.jl" begin
+@testset "DelayDifferentialAnalysis.jl" begin
     @testset "Error Types" begin
         @test BinaryNotFoundError("/nonexistent") isa DDAError
         @test FileNotFoundError("/nonexistent") isa DDAError
@@ -41,7 +41,7 @@ using DDA
         7.0 8.0 9.0 10.0 11.0 12.0
         """
 
-        result = DDA.parse_dda_output(test_content)
+        result = DelayDifferentialAnalysis.parse_dda_output(test_content)
         @test !isempty(result)
         @test size(result, 1) > 0
         @test size(result, 2) > 0
@@ -51,7 +51,7 @@ using DDA
         # More comments
         """
 
-        @test_throws ParseError DDA.parse_dda_output(empty_content)
+        @test_throws ParseError DelayDifferentialAnalysis.parse_dda_output(empty_content)
     end
 
     @testset "DDAResult Construction" begin
@@ -84,13 +84,13 @@ using DDA
             scale_params = ScaleParameters(1.0, 10.0, 10)
 
             # Create preprocessing options
-            preprocessing_opts = DDA.PreprocessingOptions(nothing, nothing, nothing)
+            preprocessing_opts = DelayDifferentialAnalysis.PreprocessingOptions(nothing, nothing, nothing)
 
             # Create algorithm selection (enable ST variant)
-            algo_selection = DDA.AlgorithmSelection(["ST"], "1 0 0 0")
+            algo_selection = DelayDifferentialAnalysis.AlgorithmSelection(["ST"], "1 0 0 0")
 
             # Create DDA request
-            request = DDA.DDARequest(
+            request = DelayDifferentialAnalysis.DDARequest(
                 "./data/test.edf",
                 nothing,  # channels
                 time_range,
@@ -101,7 +101,7 @@ using DDA
                 nothing  # ct_channel_pairs
             )
 
-            result = DDA.run(runner, request)
+            result = DelayDifferentialAnalysis.run(runner, request)
 
             println("DDA Result: ", result)
 

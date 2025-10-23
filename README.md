@@ -1,10 +1,10 @@
-# DDA.jl
+# DelayDifferentialAnalysis.jl
 
 Julia interface for the `run_DDA_AsciiEdf` binary (Cosmopolitan Libc APE format).
 
 ## Overview
 
-This package provides a clean, type-safe Julia interface to execute the DDA (Delay Differential Analysis) binary and parse its output. It handles all the complexities of:
+This package provides a clean, type-safe Julia interface to execute the Delay Differential Analysis (DDA) binary and parse its output. It handles all the complexities of:
 
 - Cross-platform APE binary execution (Windows/macOS/Linux)
 - Command-line argument construction
@@ -22,20 +22,20 @@ This package provides a clean, type-safe Julia interface to execute the DDA (Del
 
 ```julia
 using Pkg
-Pkg.add("DDA")
+Pkg.add("DelayDifferentialAnalysis")
 ```
 
 For development version:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/sdraeger/DDA.jl")
+Pkg.add(url="https://github.com/sdraeger/DelayDifferentialAnalysis.jl")
 ```
 
 ## Usage
 
 ```julia
-using DDA
+using DelayDifferentialAnalysis
 
 # Create runner with path to run_DDA_AsciiEdf binary
 runner = DDARunner("/path/to/run_DDA_AsciiEdf")
@@ -158,7 +158,7 @@ All errors inherit from `DDAError`:
 ### Basic Single-Channel Analysis
 
 ```julia
-using DDA
+using DelayDifferentialAnalysis
 
 runner = DDARunner("./bin/run_DDA_AsciiEdf")
 
@@ -180,7 +180,7 @@ println("Q matrix: $(size(result.q_matrix))")
 ### Multi-Channel Analysis with CT Variant
 
 ```julia
-using DDA
+using DelayDifferentialAnalysis
 
 runner = DDARunner("./bin/run_DDA_AsciiEdf")
 
@@ -209,7 +209,7 @@ end
 
 ```julia
 using Pkg
-Pkg.test("DDA")
+Pkg.test("DelayDifferentialAnalysis")
 ```
 
 ## License
