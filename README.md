@@ -29,7 +29,7 @@ For development version:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/USERNAME/DDA.jl")
+Pkg.add(url="https://github.com/sdraeger/DDA.jl")
 ```
 
 ## Usage
