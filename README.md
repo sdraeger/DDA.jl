@@ -22,7 +22,7 @@ This package provides a clean, type-safe Julia interface to execute the DDA (Del
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/sdraeger/DDALAB", subdir="packages/DDAJl")
+Pkg.add(url="https://github.com/sdraeger/DDAJl")
 ```
 
 Or add to your Project.toml:
