@@ -1,4 +1,4 @@
-# DDAJl
+# DDA.jl
 
 Julia interface for the `run_DDA_AsciiEdf` binary (Cosmopolitan Libc APE format).
 
@@ -22,20 +22,20 @@ This package provides a clean, type-safe Julia interface to execute the DDA (Del
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/sdraeger/DDAJl")
+Pkg.add("DDA")
 ```
 
-Or add to your Project.toml:
+For development version:
 
-```toml
-[deps]
-DDAJl = "b6d4d9e0-4e3a-4c8f-9a1f-2e7b8c9d0e1a"
+```julia
+using Pkg
+Pkg.add(url="https://github.com/USERNAME/DDA.jl")
 ```
 
 ## Usage
 
 ```julia
-using DDAJl
+using DDA
 
 # Create runner with path to run_DDA_AsciiEdf binary
 runner = DDARunner("/path/to/run_DDA_AsciiEdf")
@@ -158,7 +158,7 @@ All errors inherit from `DDAError`:
 ### Basic Single-Channel Analysis
 
 ```julia
-using DDAJl
+using DDA
 
 runner = DDARunner("./bin/run_DDA_AsciiEdf")
 
@@ -180,7 +180,7 @@ println("Q matrix: $(size(result.q_matrix))")
 ### Multi-Channel Analysis with CT Variant
 
 ```julia
-using DDAJl
+using DDA
 
 runner = DDARunner("./bin/run_DDA_AsciiEdf")
 
@@ -209,7 +209,7 @@ end
 
 ```julia
 using Pkg
-Pkg.test("DDAJl")
+Pkg.test("DDA")
 ```
 
 ## License

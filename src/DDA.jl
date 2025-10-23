@@ -1,4 +1,4 @@
-module DDAJl
+module DDA
 
 using Dates
 using UUIDs
