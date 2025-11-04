@@ -1,4 +1,4 @@
-function parse_dda_output(content::String)::Matrix{Float64}
+function parse_dda_output(content::String, column_stride::Int=4)::Matrix{Float64}
     lines = split(content, '\n')
     matrix = Vector{Vector{Float64}}()
 
@@ -47,7 +47,7 @@ function parse_dda_output(content::String)::Matrix{Float64}
             @debug "After skip, first row (first 10 values): $(after_skip[1, 1:10])"
         end
 
-        col_indices = 1:4:size(after_skip, 2)
+        col_indices = 1:column_stride:size(after_skip, 2)
         extracted = after_skip[:, col_indices]
 
         if size(extracted, 1) > 0 && size(extracted, 2) >= 5

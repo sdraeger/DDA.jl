@@ -1,8 +1,8 @@
 using Dates
 
-struct TimeRange
-    start::Float64
-    stop::Float64
+struct Bounds
+    start::Int
+    stop::Int
 end
 
 struct AlgorithmSelection
@@ -18,15 +18,13 @@ struct WindowParameters
 end
 
 struct DelayParameters
-    delay_min::Float64
-    delay_max::Float64
-    delay_num::Int
+    delays::Vector{Int}
 end
 
 struct DDARequest
     file_path::String
     channels::Union{Vector{Int},Nothing}
-    time_range::TimeRange
+    bounds::Union{Bounds,Nothing}
     algorithm_selection::AlgorithmSelection
     window_parameters::WindowParameters
     delay_parameters::DelayParameters
@@ -41,7 +39,6 @@ struct VariantResult
 end
 
 struct DDAResult
-    id::String
     file_path::String
     channels::Vector{String}
     q_matrix::Matrix{Float64}
@@ -52,7 +49,6 @@ struct DDAResult
 end
 
 function DDAResult(
-    id::String,
     file_path::String,
     channels::Vector{String},
     q_matrix::Matrix{Float64},
@@ -60,7 +56,6 @@ function DDAResult(
     delay_parameters::DelayParameters
 )
     DDAResult(
-        id,
         file_path,
         channels,
         q_matrix,

@@ -8,10 +8,10 @@ include("types.jl")
 include("parser.jl")
 include("runner.jl")
 
-export DDARunner, run, binary_path
+export DDARunner, run_dda, binary_path
 
 export DDARequest, DDAResult, VariantResult
-export TimeRange, AlgorithmSelection
+export Bounds, AlgorithmSelection
 export WindowParameters, DelayParameters
 
 export DDAError, BinaryNotFoundError, FileNotFoundError, UnsupportedFileTypeError

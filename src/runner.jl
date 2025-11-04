@@ -11,11 +11,9 @@ struct DDARunner
     end
 end
 
-function run(
+function run_dda(
     runner::DDARunner,
     request::DDARequest,
-    start_bound::Union{Int,Nothing}=nothing,
-    end_bound::Union{Int,Nothing}=nothing,
     edf_channel_names::Union{Vector{String},Nothing}=nothing
 )::DDAResult
     analysis_id = string(uuid4())
@@ -25,8 +23,8 @@ function run(
     end
 
     @info "Starting DDA analysis for file: $(request.file_path)"
-    @info "Channel indices (0-based from frontend): $(request.channels)"
-    @info "Time range: $(request.time_range)"
+    @info "Channel indices (1-based): $(request.channels)"
+    @info "Bounds: $(request.bounds)"
     @info "Window parameters: $(request.window_parameters)"
     @info "Delay parameters: $(request.delay_parameters)"
 
@@ -34,7 +32,7 @@ function run(
     output_file = joinpath(temp_dir, "dda_output_$(analysis_id).txt")
 
     channel_indices = if !isnothing(request.channels)
-        [string(idx + 1) for idx in request.channels]
+        [string(idx) for idx in request.channels]
     else
         ["1"]
     end
@@ -46,7 +44,28 @@ function run(
     select_mask = if !isnothing(request.algorithm_selection.select_mask)
         request.algorithm_selection.select_mask
     else
-        "1 0 0 0"
+        # Auto-generate select_mask based on enabled_variants
+        # Mapping: ST=bit0, CT=bit1, CD=bit2, DE=bit3
+        variants = request.algorithm_selection.enabled_variants
+        bits = ["0", "0", "0", "0"]
+
+        if "ST" in variants
+            bits[1] = "1"
+        end
+        if "CT" in variants
+            bits[2] = "1"
+        end
+        if "CD" in variants
+            # CD requires ST and CT to be enabled
+            bits[1] = "1"
+            bits[2] = "1"
+            bits[3] = "1"
+        end
+        if "DE" in variants
+            bits[4] = "1"
+        end
+
+        join(bits, " ")
     end
 
     select_bits = split(select_mask)
@@ -121,9 +140,9 @@ function run(
         @info "Using $(length(channel_indices)) individual channels for ST variant"
     elseif ct_enabled && has_ct_pairs
         first_pair = request.ct_channel_pairs[1]
-        push!(cmd_args, string(first_pair[1] + 1))
-        push!(cmd_args, string(first_pair[2] + 1))
-        @info "CT only - processing first pair (1-based): [$(first_pair[1] + 1), $(first_pair[2] + 1)]"
+        push!(cmd_args, string(first_pair[1]))
+        push!(cmd_args, string(first_pair[2]))
+        @info "CT only - processing first pair (1-based): [$(first_pair[1]), $(first_pair[2])]"
         if length(request.ct_channel_pairs) > 1
             @info "Will process $(length(request.ct_channel_pairs) - 1) additional CT pairs in separate executions"
         end
@@ -152,15 +171,13 @@ function run(
         append!(cmd_args, ["-WS_CT", string(request.window_parameters.ct_window_step)])
     end
 
-    delay_min = Int(request.delay_parameters.delay_min)
-    delay_max = Int(request.delay_parameters.delay_max)
     push!(cmd_args, "-TAU")
-    for delay in delay_min:delay_max
+    for delay in request.delay_parameters.delays
         push!(cmd_args, string(delay))
     end
 
-    if !isnothing(start_bound) && !isnothing(end_bound)
-        append!(cmd_args, ["-StartEnd", string(start_bound), string(end_bound)])
+    if !isnothing(request.bounds)
+        append!(cmd_args, ["-StartEnd", string(request.bounds.start), string(request.bounds.stop)])
     end
 
     @info "Executing DDA command: $(join(cmd_args, ' '))"
@@ -211,7 +228,9 @@ function run(
 
         @info "Output file size for $variant: $(length(output_content)) bytes"
 
-        q_matrix = parse_dda_output(output_content)
+        # CD variant uses stride=2, others use stride=4
+        column_stride = variant == "CD" ? 2 : 4
+        q_matrix = parse_dda_output(output_content, column_stride)
 
         if !isempty(q_matrix)
             num_channels = size(q_matrix, 1)
@@ -246,8 +265,8 @@ function run(
                 "-OUT_FN", pair_output_file,
                 file_type_flag,
                 "-CH_list",
-                string(pair[1] + 1),
-                string(pair[2] + 1),
+                string(pair[1]),
+                string(pair[2]),
                 "-dm", "4",
                 "-order", "4",
                 "-nr_tau", "2",
@@ -265,15 +284,15 @@ function run(
             end
 
             push!(pair_cmd_args, "-TAU")
-            for delay in delay_min:delay_max
+            for delay in request.delay_parameters.delays
                 push!(pair_cmd_args, string(delay))
             end
 
-            if !isnothing(start_bound) && !isnothing(end_bound)
-                append!(pair_cmd_args, ["-StartEnd", string(start_bound), string(end_bound)])
+            if !isnothing(request.bounds)
+                append!(pair_cmd_args, ["-StartEnd", string(request.bounds.start), string(request.bounds.stop)])
             end
 
-            @info "Executing DDA for CT pair $(pair_idx-1) (1-based): [$(pair[1] + 1), $(pair[2] + 1)]"
+            @info "Executing DDA for CT pair $(pair_idx-1) (1-based): [$(pair[1]), $(pair[2])]"
 
             pair_cmd = is_windows ? Cmd([runner.binary_path; pair_cmd_args[5:end]]) : Cmd(pair_cmd_args)
             try
@@ -297,7 +316,8 @@ function run(
             end
 
             pair_content = read(actual_pair_ct_file, String)
-            pair_q_matrix = parse_dda_output(pair_content)
+            # CT variant uses stride=4
+            pair_q_matrix = parse_dda_output(pair_content, 4)
 
             if !isempty(pair_q_matrix)
                 @info "Adding CT pair $(pair_idx-1) results: $(size(pair_q_matrix, 1)) channels × $(size(pair_q_matrix, 2)) timepoints"
@@ -358,7 +378,7 @@ function run(
     @info "Using $primary_variant_name as primary variant, $(length(variant_matrices)) total variants processed"
 
     channels = if !isnothing(request.channels)
-        ["Channel $(idx + 1)" for idx in request.channels]
+        ["Channel $(idx)" for idx in request.channels]
     else
         ["Channel 1"]
     end
@@ -369,9 +389,9 @@ function run(
         elseif id == "CT"
             "Cross-Timeseries (CT)"
         elseif id == "CD"
-            "Cross-Delay (CD)"
+            "Cross-Dynamical (CD)"
         elseif id == "DE"
-            "Delay Evolution (DE)"
+            "Dynamical Ergodicity (DE)"
         else
             id
         end
@@ -385,14 +405,14 @@ function run(
             if variant_id == "CT" && !isnothing(request.ct_channel_pairs)
                 pairs = request.ct_channel_pairs
                 if !isnothing(edf_channel_names)
-                    ["$(edf_channel_names[pair[1] + 1]) ⟷ $(edf_channel_names[pair[2] + 1])" for pair in pairs]
+                    ["$(edf_channel_names[pair[1]]) ⟷ $(edf_channel_names[pair[2]])" for pair in pairs]
                 else
-                    ["Ch$(pair[1] + 1) ⟷ Ch$(pair[2] + 1)" for pair in pairs]
+                    ["Ch$(pair[1]) ⟷ Ch$(pair[2])" for pair in pairs]
                 end
             elseif !isnothing(edf_channel_names)
                 channel_indices = request.channels
                 if !isnothing(channel_indices)
-                    [edf_channel_names[idx+1] for idx in channel_indices if idx + 1 <= length(edf_channel_names)]
+                    [edf_channel_names[idx] for idx in channel_indices if idx <= length(edf_channel_names)]
                 else
                     edf_channel_names
                 end
@@ -404,7 +424,6 @@ function run(
     ]
 
     result = DDAResult(
-        analysis_id,
         request.file_path,
         channels,
         primary_q_matrix,
