@@ -28,10 +28,10 @@ using DelayDifferentialAnalysis
         @test window_params.window_length == 1024
         @test window_params.window_step == 512
 
-        scale_params = ScaleParameters(1.0, 10.0, 10)
-        @test scale_params.scale_min == 1.0
-        @test scale_params.scale_max == 10.0
-        @test scale_params.scale_num == 10
+        delay_params = DelayParameters(1.0, 10.0, 10)
+        @test delay_params.delay_min == 1.0
+        @test delay_params.delay_max == 10.0
+        @test delay_params.delay_num == 10
     end
 
     @testset "Parser" begin
@@ -56,7 +56,7 @@ using DelayDifferentialAnalysis
 
     @testset "DDAResult Construction" begin
         window_params = WindowParameters(1024, 512, nothing, nothing)
-        scale_params = ScaleParameters(1.0, 10.0, 10)
+        delay_params = DelayParameters(1.0, 10.0, 10)
 
         result = DDAResult(
             "test-id",
@@ -64,7 +64,7 @@ using DelayDifferentialAnalysis
             ["Channel 1"],
             zeros(Float64, 10, 100),
             window_params,
-            scale_params
+            delay_params
         )
 
         @test result.id == "test-id"
@@ -81,10 +81,7 @@ using DelayDifferentialAnalysis
 
             time_range = TimeRange(0.0, 100.0)
             window_params = WindowParameters(1024, 512, nothing, nothing)
-            scale_params = ScaleParameters(1.0, 10.0, 10)
-
-            # Create preprocessing options
-            preprocessing_opts = DelayDifferentialAnalysis.PreprocessingOptions(nothing, nothing, nothing)
+            delay_params = DelayParameters(1.0, 10.0, 10)
 
             # Create algorithm selection (enable ST variant)
             algo_selection = DelayDifferentialAnalysis.AlgorithmSelection(["ST"], "1 0 0 0")
@@ -94,10 +91,9 @@ using DelayDifferentialAnalysis
                 "./data/test.edf",
                 nothing,  # channels
                 time_range,
-                preprocessing_opts,
                 algo_selection,
                 window_params,
-                scale_params,
+                delay_params,
                 nothing  # ct_channel_pairs
             )
 

@@ -11,8 +11,8 @@ include("runner.jl")
 export DDARunner, run, binary_path
 
 export DDARequest, DDAResult, VariantResult
-export TimeRange, PreprocessingOptions, AlgorithmSelection
-export WindowParameters, ScaleParameters
+export TimeRange, AlgorithmSelection
+export WindowParameters, DelayParameters
 
 export DDAError, BinaryNotFoundError, FileNotFoundError, UnsupportedFileTypeError
 export ExecutionFailedError, ParseError, InvalidParameterError

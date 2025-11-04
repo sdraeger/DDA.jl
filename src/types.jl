@@ -5,12 +5,6 @@ struct TimeRange
     stop::Float64
 end
 
-struct PreprocessingOptions
-    detrending::Union{String,Nothing}
-    highpass::Union{Float64,Nothing}
-    lowpass::Union{Float64,Nothing}
-end
-
 struct AlgorithmSelection
     enabled_variants::Vector{String}
     select_mask::Union{String,Nothing}
@@ -23,20 +17,19 @@ struct WindowParameters
     ct_window_step::Union{Int,Nothing}
 end
 
-struct ScaleParameters
-    scale_min::Float64
-    scale_max::Float64
-    scale_num::Int
+struct DelayParameters
+    delay_min::Float64
+    delay_max::Float64
+    delay_num::Int
 end
 
 struct DDARequest
     file_path::String
     channels::Union{Vector{Int},Nothing}
     time_range::TimeRange
-    preprocessing_options::PreprocessingOptions
     algorithm_selection::AlgorithmSelection
     window_parameters::WindowParameters
-    scale_parameters::ScaleParameters
+    delay_parameters::DelayParameters
     ct_channel_pairs::Union{Vector{Vector{Int}},Nothing}
 end
 
@@ -55,8 +48,7 @@ struct DDAResult
     variant_results::Union{Vector{VariantResult},Nothing}
     raw_output::Union{String,Nothing}
     window_parameters::WindowParameters
-    scale_parameters::ScaleParameters
-    created_at::DateTime
+    delay_parameters::DelayParameters
 end
 
 function DDAResult(
@@ -65,7 +57,7 @@ function DDAResult(
     channels::Vector{String},
     q_matrix::Matrix{Float64},
     window_parameters::WindowParameters,
-    scale_parameters::ScaleParameters
+    delay_parameters::DelayParameters
 )
     DDAResult(
         id,
@@ -75,7 +67,6 @@ function DDAResult(
         nothing,
         nothing,
         window_parameters,
-        scale_parameters,
-        now()
+        delay_parameters
     )
 end

@@ -58,7 +58,7 @@ function parse_dda_output(content::String)::Matrix{Float64}
             throw(ParseError("No data after column extraction"))
         end
 
-        @info "Extracted matrix shape: $(size(extracted, 1)) rows × $(size(extracted, 2)) columns (time windows × delays/scales)"
+        @info "Extracted matrix shape: $(size(extracted, 1)) rows × $(size(extracted, 2)) columns (time windows × delays)"
 
         transposed = extracted'
 

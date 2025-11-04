@@ -45,11 +45,6 @@ request = DDARequest(
     "/path/to/data.edf",                    # file_path
     [0, 1],                                  # channels (0-based indices)
     TimeRange(0.0, 100.0),                   # time_range
-    PreprocessingOptions(
-        "linear",                             # detrending
-        nothing,                              # highpass
-        nothing                               # lowpass
-    ),
     AlgorithmSelection(
         ["standard"],                         # enabled_variants
         nothing                               # select_mask
@@ -60,10 +55,10 @@ request = DDARequest(
         nothing,                              # ct_window_length
         nothing                               # ct_window_step
     ),
-    ScaleParameters(
-        1.0,                                  # scale_min
-        10.0,                                 # scale_max
-        10                                    # scale_num
+    DelayParameters(
+        1.0,                                  # delay_min
+        10.0,                                 # delay_max
+        10                                    # delay_num
     ),
     nothing                                   # ct_channel_pairs
 )
@@ -98,7 +93,7 @@ The package automatically handles the APE (Actually Portable Executable) format:
 The parser implements the same transformation as dda-py and dda-rs:
 1. Skip first 2 columns
 2. Take every 4th column from the remaining data
-3. Transpose to get [channels/scales × timepoints] format
+3. Transpose to get [channels × timepoints] format
 
 ## API Reference
 
@@ -119,8 +114,8 @@ Time range specification with `start` and `stop` fields.
 #### `WindowParameters`
 Window configuration for DDA analysis.
 
-#### `ScaleParameters`
-Scale/delay parameter configuration.
+#### `DelayParameters`
+Delay parameter configuration.
 
 ### Functions
 
@@ -164,12 +159,11 @@ runner = DDARunner("./bin/run_DDA_AsciiEdf")
 
 request = DDARequest(
     "data.edf",
-    [0],  # First channel
+    [1, 2, 3],  # First 3 channels
     TimeRange(0.0, 60.0),
-    PreprocessingOptions("linear", nothing, nothing),
     AlgorithmSelection(["standard"], nothing),
     WindowParameters(512, 256, nothing, nothing),
-    ScaleParameters(1.0, 20.0, 20),
+    DelayParameters(1.0, 20.0, 20),
     nothing
 )
 
@@ -186,13 +180,12 @@ runner = DDARunner("./bin/run_DDA_AsciiEdf")
 
 request = DDARequest(
     "data.edf",
-    [0, 1, 2],
+    [1, 2, 3],
     TimeRange(0.0, 120.0),
-    PreprocessingOptions("linear", 0.5, 45.0),
     AlgorithmSelection(["ST", "CT"], "1 1 0 0"),  # Enable ST and CT
     WindowParameters(1024, 512, 2048, 1024),  # CT-specific windows
-    ScaleParameters(1.0, 15.0, 15),
-    [[0, 1], [1, 2]]  # CT channel pairs
+    DelayParameters(1.0, 15.0, 15),
+    [[1, 2], [2, 3]]  # CT channel pairs
 )
 
 result = run(runner, request, 0, 60000)

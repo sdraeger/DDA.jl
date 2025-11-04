@@ -28,7 +28,7 @@ function run(
     @info "Channel indices (0-based from frontend): $(request.channels)"
     @info "Time range: $(request.time_range)"
     @info "Window parameters: $(request.window_parameters)"
-    @info "Scale parameters: $(request.scale_parameters)"
+    @info "Delay parameters: $(request.delay_parameters)"
 
     temp_dir = tempdir()
     output_file = joinpath(temp_dir, "dda_output_$(analysis_id).txt")
@@ -152,8 +152,8 @@ function run(
         append!(cmd_args, ["-WS_CT", string(request.window_parameters.ct_window_step)])
     end
 
-    delay_min = Int(request.scale_parameters.scale_min)
-    delay_max = Int(request.scale_parameters.scale_max)
+    delay_min = Int(request.delay_parameters.delay_min)
+    delay_max = Int(request.delay_parameters.delay_max)
     push!(cmd_args, "-TAU")
     for delay in delay_min:delay_max
         push!(cmd_args, string(delay))
@@ -411,8 +411,7 @@ function run(
         variant_results,
         nothing,
         request.window_parameters,
-        request.scale_parameters,
-        now()
+        request.delay_parameters
     )
 
     return result
