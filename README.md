@@ -2,6 +2,8 @@
 
 Julia package for Delay Differential Analysis (DDA).
 
+The [DDA binary](https://snl.salk.edu/~sfdraeger/dda/) is required. Please download the most recent version from the file server.
+
 ## Installation
 
 ```julia
@@ -38,10 +40,10 @@ println(variants)  # [ST, CT]
 
 The package provides access to all DDA variants:
 
-- `ST` - Standard
-- `CT` - Continuous Time
-- `CD` - Continuous Data
-- `DE` - Differential Equation
+- `ST` - Single Timeseries
+- `CT` - Cross Timeseries
+- `CD` - Cross Dynamical
+- `DE` - Dynamical Ergodicity
 - `SY` - Synchrony
 
 ## License

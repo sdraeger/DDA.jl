@@ -7,7 +7,7 @@ This package provides:
 - Variant metadata (ST, CT, CD, DE, SY)
 - SELECT mask generation and parsing
 - File type detection
-- Scale parameter utilities
+- Default delay values
 
 # Example
 ```julia
@@ -36,7 +36,7 @@ export VARIANT_REGISTRY, VARIANT_ORDER
 export ST, CT, CD, RESERVED, DE, SY
 export get_variant_by_abbrev, get_variant_by_suffix, get_variant_by_position
 export active_variants, generate_select_mask, parse_select_mask, format_select_mask
-export ScaleParameters, generate_delays
+export DEFAULT_DELAYS
 export requires_ct_params, SelectMaskPositions
 export FileType, EDF, ASCII, get_flag, file_type_from_extension
 

@@ -295,37 +295,21 @@ const CT_REQUIRING_VARIANTS = ["CT", "CD", "DE"]
     end
 
     # =============================================================================
-    # SCALE PARAMETERS
+    # DELAYS
     # =============================================================================
 
-    @testset "Scale Parameters" begin
-        @testset "Defaults" begin
-            params = ScaleParameters()
-            @test params.scale_min == 1.0
-            @test params.scale_max == 20.0
-            @test params.scale_num == 20
+    @testset "Delays" begin
+        @testset "Default delays length" begin
+            @test length(DEFAULT_DELAYS) == 2
         end
 
-        @testset "Generate delays - default" begin
-            params = ScaleParameters()
-            delays = generate_delays(params)
-            @test length(delays) == 20
-            @test delays[1] == 1  # Julia is 1-indexed
-            @test delays[20] == 20
+        @testset "Default delays values" begin
+            @test DEFAULT_DELAYS[1] == 7  # Julia is 1-indexed
+            @test DEFAULT_DELAYS[2] == 10
         end
 
-        @testset "Generate delays - single" begin
-            params = ScaleParameters(scale_min=5.0, scale_max=5.0, scale_num=1)
-            delays = generate_delays(params)
-            @test delays == [5]
-        end
-
-        @testset "Generate delays - custom" begin
-            params = ScaleParameters(scale_min=1.0, scale_max=10.0, scale_num=10)
-            delays = generate_delays(params)
-            @test length(delays) == 10
-            @test delays[1] == 1
-            @test delays[10] == 10
+        @testset "Default delays equals expected" begin
+            @test DEFAULT_DELAYS == [7, 10]
         end
     end
 
