@@ -1,0 +1,19 @@
+# Julia generated files
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+deps/deps.jl
+deps/build.log
+
+# Documentation
+docs/build/
+docs/site/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Manifest should be ignored for packages (not applications)
+# Uncomment if you want to ignore it:
+# Manifest.toml
