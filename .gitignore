@@ -15,5 +15,4 @@ docs/site/
 *.swp
 
 # Manifest should be ignored for packages (not applications)
-# Uncomment if you want to ignore it:
-# Manifest.toml
+Manifest.toml
