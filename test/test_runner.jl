@@ -78,10 +78,30 @@ using DelayDifferentialAnalysis
     # =============================================================================
 
     @testset "Runner module imports" begin
-        # This test ensures the Runner module has all required imports (UUIDs, Dates, etc.)
-        # It catches issues like missing `using UUIDs` that would cause runtime errors.
-        # We call run_analysis with a non-existent file - it should fail with a file error,
-        # NOT an import/undefined variable error.
+        # These tests ensure the Runner module has all required imports (UUIDs, Dates, etc.)
+        # They catch issues like `using UUIDs` vs `import UUIDs` that cause runtime errors.
+
+        @testset "UUIDs module is accessible" begin
+            # Directly test that the UUIDs import works by calling the internal function
+            # This catches the `using UUIDs` vs `import UUIDs` issue
+            runner_module = DelayDifferentialAnalysis.Runner
+
+            # The Runner module must have UUIDs accessible for uuid4()
+            # Test by evaluating in the module's context
+            uuid_str = Base.invokelatest(Core.eval, runner_module, :(string(UUIDs.uuid4())))
+            @test typeof(uuid_str) == String
+            @test length(uuid_str) == 36  # UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+            @test occursin("-", uuid_str)
+        end
+
+        @testset "Dates module is accessible" begin
+            # Test that Dates.now() works in the Runner module context
+            runner_module = DelayDifferentialAnalysis.Runner
+
+            datetime_str = Base.invokelatest(Core.eval, runner_module, :(string(Dates.now())))
+            @test typeof(datetime_str) == String
+            @test length(datetime_str) > 0
+        end
 
         @testset "run_analysis fails gracefully with missing file" begin
             request = DDARequest(

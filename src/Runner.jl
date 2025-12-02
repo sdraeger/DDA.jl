@@ -7,8 +7,8 @@ run_DDA_AsciiEdf binary and parsing results.
 
 module Runner
 
-using UUIDs
-using Dates
+import UUIDs
+import Dates
 using ..Variants
 
 export DDARequest, DDAResult, VariantResultData
