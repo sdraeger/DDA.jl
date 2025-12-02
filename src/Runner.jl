@@ -7,6 +7,8 @@ run_DDA_AsciiEdf binary and parsing results.
 
 module Runner
 
+using UUIDs
+using Dates
 using ..Variants
 
 export DDARequest, DDAResult, VariantResultData
@@ -190,14 +192,20 @@ Handles execution of the run_DDA_AsciiEdf binary.
 
 # Example
 ```julia
+# Auto-discover binary
+runner = DDARunner()
+
+# Or specify explicit path
 runner = DDARunner("/path/to/run_DDA_AsciiEdf")
+
 result = run_analysis(runner, request)
 ```
 """
 struct DDARunner
     binary_path::String
 
-    function DDARunner(binary_path::String)
+    # Inner constructor validates binary exists
+    function DDARunner(binary_path::AbstractString)
         path = expanduser(binary_path)
         if !isfile(path)
             error("DDA binary not found: $path")
@@ -210,7 +218,23 @@ end
     DDARunner()
 
 Create a DDARunner by auto-discovering the binary location.
-Uses `find_binary()` to locate the DDA binary.
+
+Uses `find_binary()` to locate the DDA binary via:
+1. `\$DDA_BINARY_PATH` environment variable
+2. `\$DDA_HOME/bin/` directory
+3. Default search paths (`~/.local/bin`, `~/bin`, `/usr/local/bin`, `/opt/dda/bin`)
+
+# Returns
+- `DDARunner` instance
+
+# Throws
+- `ErrorException`: If binary not found
+
+# Examples
+```julia
+runner = DDARunner()  # Auto-discover
+result = run_analysis(runner, request)
+```
 """
 function DDARunner()
     path = find_binary()

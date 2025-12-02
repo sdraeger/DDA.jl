@@ -47,9 +47,6 @@ path = find_binary()
 """
 module DelayDifferentialAnalysis
 
-using UUIDs
-using Dates
-
 # Include the generated Variants module
 include("Variants.jl")
 

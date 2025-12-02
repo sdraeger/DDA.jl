@@ -74,6 +74,51 @@ using DelayDifferentialAnalysis
     end
 
     # =============================================================================
+    # MODULE IMPORTS VALIDATION
+    # =============================================================================
+
+    @testset "Runner module imports" begin
+        # This test ensures the Runner module has all required imports (UUIDs, Dates, etc.)
+        # It catches issues like missing `using UUIDs` that would cause runtime errors.
+        # We call run_analysis with a non-existent file - it should fail with a file error,
+        # NOT an import/undefined variable error.
+
+        @testset "run_analysis fails gracefully with missing file" begin
+            request = DDARequest(
+                "/nonexistent/path/to/file.edf",
+                [0, 1, 2],
+                ["ST", "SY"];
+                window_length=2048,
+                window_step=1024
+            )
+
+            # Create a fake binary path to bypass binary discovery
+            fake_binary = tempname()
+            touch(fake_binary)
+
+            try
+                runner = DDARunner(fake_binary)
+                # This should fail with "Input file not found", NOT "UndefVarError: UUIDs"
+                err = nothing
+                try
+                    run_analysis(runner, request)
+                catch e
+                    err = e
+                end
+
+                # Verify we got the expected error type (file not found), not an import error
+                @test err !== nothing
+                err_msg = string(err)
+                @test !occursin("UndefVarError", err_msg)
+                @test !occursin("not defined", err_msg)
+                @test occursin("not found", lowercase(err_msg)) || occursin("Input file", err_msg)
+            finally
+                rm(fake_binary, force=true)
+            end
+        end
+    end
+
+    # =============================================================================
     # RUNNER CONSTRUCTION
     # =============================================================================
 
