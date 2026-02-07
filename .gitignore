@@ -1,3 +1,5 @@
+.DS_Store
+
 # Julia generated files
 *.jl.cov
 *.jl.*.cov

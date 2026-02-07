@@ -3,54 +3,46 @@
 
 Julia bindings for Delay Differential Analysis (DDA).
 
-This package provides:
-- High-level `run_analysis()` function to execute DDA
-- Variant metadata (ST, CT, CD, DE, SY)
-- SELECT mask generation and parsing
-- File type detection
-- Binary discovery
-
-# Quick Start
+# High-Level API
 ```julia
 using DelayDifferentialAnalysis
 
-# Run DDA analysis on an EDF file
-request = DDARequest(
-    "data.edf",
-    [0, 1, 2],      # channels (0-based)
-    ["ST", "SY"];   # variants
-    window_length=2048,
-    window_step=1024
-)
-result = run_analysis(request)
-
-# Access results
-println("Q matrix size: ", size(result.q_matrix))
-for vr in result.variant_results
-    println("\$(vr.variant_name): ", size(vr.q_matrix))
-end
+data = randn(3, 10000)  # 3 channels, 10000 samples
+result = run_st(data; sfreq=256.0, delays=[7, 10], wl=200, ws=100)
+println(n_channels(result))           # 3
+println(n_windows(result))            # depends on data length
+println(result.coefficients |> size)  # (3, n_windows, 3)
 ```
 
-# Low-level API
+# Cross-Timeseries
 ```julia
-# Generate SELECT mask for CLI
-mask = generate_select_mask(["ST", "SY"])
-println(format_select_mask(mask))  # "1 0 0 0 0 1"
+result = run_ct(data; sfreq=256.0, delays=[7, 10], wl=200, ws=100)
+println(n_pairs(result))  # 3 pairs for 3 channels
+```
 
-# Look up variant metadata
-st = get_variant_by_abbrev("ST")
-println("ST stride: \$(st.stride)")
+# Dynamical Ergodicity
+```julia
+result = run_de(data; sfreq=256.0, delays=[7, 10], wl=200, ws=100)
+println(result.ergodicity |> length)
+```
 
-# Find the DDA binary
-path = find_binary()
+# Model Encoding
+```julia
+monomials = generate_monomials(2, 4)
+println(decode_model_encoding([1, 2, 10]; num_delays=2, polynomial_order=4))
+```
+
+# Low-Level API
+```julia
+runner = DDARunner()
+request = DDARequest("data.edf", [0, 1, 2], ["ST"]; window_length=200, window_step=100)
+result = run_analysis(runner, request)
 ```
 """
 module DelayDifferentialAnalysis
 
-# Include the generated Variants module
+# --- Variants (binary metadata, SELECT masks, file types) ---
 include("Variants.jl")
-
-# Re-export everything from Variants
 using .Variants
 export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
 export SHELL_COMMAND, SUPPORTED_PLATFORMS
@@ -66,12 +58,51 @@ export DEFAULT_DELAYS
 export requires_ct_params, SelectMaskPositions
 export FileType, EDF, ASCII, get_flag, file_type_from_extension
 
-# Include the Runner module
-include("Runner.jl")
+# --- Defaults (parameter constants) ---
+include("Defaults.jl")
+using .DDADefaults
+using .DDAFlags
 
-# Re-export Runner types and functions
+# --- Result types ---
+include("Results.jl")
+using .Results
+export STResult, CTResult, DEResult
+export n_channels, n_windows, n_coeffs, n_pairs, to_dataframe
+
+# --- Runner (binary execution + parsing) ---
+include("Runner.jl")
 using .Runner
 export DDARequest, DDAResult, VariantResultData
 export DDARunner, run_analysis
+export StructuredTimepoint, StructuredChannelData
+export run_analysis_structured, parse_output_file_structured
+
+# --- High-level API ---
+include("API.jl")
+using .API
+export run_st, run_ct, run_de
+
+# --- Model encoding ---
+include("ModelEncoding.jl")
+using .ModelEncoding
+export generate_monomials, monomial_to_text, monomial_to_latex
+export decode_model_encoding, visualize_model_space
+
+# --- Batch processing ---
+include("Batch.jl")
+using .Batch
+export GroupResult, run_batch, collect_results
+export n_subjects, mean_over_windows
+
+# --- Statistics ---
+include("Stats.jl")
+using .Stats
+export PermutationResult, EffectSizeResult, WindowComparisonResult
+export permutation_test, compute_effect_size, compare_windows
+
+# --- Plotting (lazy Plots.jl) ---
+include("Plotting.jl")
+using .Plotting
+export plot_coefficients, plot_heatmap, plot_errors, plot_ergodicity, plot_model
 
 end # module DelayDifferentialAnalysis

@@ -25,8 +25,8 @@ using DelayDifferentialAnalysis
             @test request.file_path == "test.edf"
             @test request.channels == [0, 1, 2]
             @test request.variants == ["ST", "SY"]
-            @test request.window_params.window_length == 2048  # Default
-            @test request.window_params.window_step == 1024    # Default
+            @test request.window_params.window_length == 200   # Default (DDADefaults.WINDOW_LENGTH)
+            @test request.window_params.window_step == 100    # Default (DDADefaults.WINDOW_STEP)
             @test request.delay_params.delays == collect(DEFAULT_DELAYS)
         end
 

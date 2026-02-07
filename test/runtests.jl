@@ -1,8 +1,14 @@
 using Test
 using DelayDifferentialAnalysis
 
-# Include comprehensive spec validation tests
+# Core module tests
 include("test_variants.jl")
-
-# Include runner tests
 include("test_runner.jl")
+
+# New module tests
+include("test_results.jl")
+include("test_model_encoding.jl")
+include("test_batch.jl")
+include("test_stats.jl")
+include("test_api.jl")
+include("test_plotting.jl")
