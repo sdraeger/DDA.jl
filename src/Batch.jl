@@ -4,6 +4,7 @@ module Batch
 using Statistics
 using ..Results
 using ..API
+using ..DDADefaults
 
 export GroupResult, run_batch, collect_results
 export n_subjects, mean_over_windows
@@ -83,10 +84,10 @@ function run_batch(
     files::Vector{String};
     variant::String="st",
     sfreq::Float64=1.0,
-    delays::Vector{Int}=collect(Results.DDADefaults_DELAYS()),
+    delays::Vector{Int}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int},Nothing}=nothing,
-    wl::Int=200,
-    ws::Int=100,
+    wl::Int=DDADefaults.WINDOW_LENGTH,
+    ws::Int=DDADefaults.WINDOW_STEP,
     channel_labels::Union{Vector{String},Nothing}=nothing,
     binary_path::Union{String,Nothing}=nothing,
     progress::Bool=true,
@@ -166,9 +167,6 @@ function _load_ascii(filepath::String)::Matrix{Float64}
     end
     return mat
 end
-
-# Workaround: access DDADefaults.DELAYS without a direct dependency
-DDADefaults_DELAYS() = [7, 10]
 
 # =============================================================================
 # collect_results
