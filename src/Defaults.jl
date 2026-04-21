@@ -7,6 +7,7 @@ module DDADefaults
     const WINDOW_LENGTH = 200
     const WINDOW_STEP = 100
     const DELAYS = (7, 10)
+    const SAMPLING_RATE = (500, 1000)
 end
 
 """CLI flag constants for the DDA binary."""

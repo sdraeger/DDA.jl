@@ -60,16 +60,17 @@ DDA analysis request parameters.
 
 # Fields
 - `file_path`: Path to input file (EDF or ASCII)
-- `channels`: Channel indices (0-based)
+- `channels`: Channel indices (1-based, Julia-style)
 - `variants`: Variant abbreviations (e.g., ["ST", "SY"])
 - `window_params`: Window length and step
 - `delay_params`: Delay (tau) values
-- `model_params`: Embedding parameters (dm, order, nr_tau)
-- `model_encoding`: Model term indices (e.g., [1, 2, 10])
+- `model_params`: Model parameters (`dm`, `order`, `nr_tau`)
+- `model_terms`: Model term indices passed to `-MODEL`
 - `time_range`: Optional time range in samples
-- `ct_channel_pairs`: Channel pairs for CT (0-based)
-- `cd_channel_pairs`: Directed pairs for CD (0-based)
-- `sampling_rate`: Optional sampling rate in Hz
+- `ct_channel_pairs`: Channel pairs for CT (1-based)
+- `cd_channel_pairs`: Directed pairs for CD (1-based)
+- `sampling_rate`: Optional `-SR` pair `(low, high)`
+- `out_fn`: Optional output base passed to `-OUT_FN`
 """
 struct DDARequest
     file_path::String
@@ -78,11 +79,74 @@ struct DDARequest
     window_params::WindowParameters
     delay_params::DelayParameters
     model_params::ModelParameters
-    model_encoding::Vector{Int}
+    model_terms::Vector{Int}
     time_range::Union{TimeRange, Nothing}
     ct_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     cd_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
-    sampling_rate::Union{Float64, Nothing}
+    sampling_rate::Union{Tuple{Int, Int}, Nothing}
+    out_fn::Union{String, Nothing}
+end
+
+function _normalize_channels(channels::AbstractVector{<:Integer})::Vector{Int}
+    normalized = Int[channels...]
+    isempty(normalized) && error("At least one channel must be provided")
+    any(ch -> ch < 1, normalized) && error("Channels must be 1-based positive indices")
+    return normalized
+end
+
+function _normalize_pairs(
+    pairs::Union{AbstractVector{<:Tuple}, Nothing},
+)::Union{Vector{Tuple{Int, Int}}, Nothing}
+    pairs === nothing && return nothing
+    normalized = Tuple{Int, Int}[]
+    for pair in pairs
+        length(pair) == 2 || error("Channel pairs must contain exactly two entries")
+        first_idx = Int(pair[1])
+        second_idx = Int(pair[2])
+        first_idx >= 1 || error("Channel pairs must use 1-based positive indices")
+        second_idx >= 1 || error("Channel pairs must use 1-based positive indices")
+        push!(normalized, (first_idx, second_idx))
+    end
+    return normalized
+end
+
+function _resolve_model_dimension(
+    model_dimension::Union{Int, Nothing},
+    dm::Union{Int, Nothing},
+)::Int
+    if model_dimension !== nothing && dm !== nothing && model_dimension != dm
+        error("`model_dimension` and `dm` disagree: $model_dimension != $dm")
+    end
+    value = something(model_dimension, dm, DDADefaults.MODEL_DIMENSION)
+    value > 0 || error("Model dimension must be positive")
+    return value
+end
+
+function _normalize_sampling_rate(
+    sampling_rate::Union{
+        Nothing,
+        Real,
+        Tuple{Real, Real},
+        AbstractVector{<:Real},
+    },
+)::Union{Tuple{Int, Int}, Nothing}
+    sampling_rate === nothing && return nothing
+
+    if sampling_rate isa Real
+        upper = Int(sampling_rate)
+        upper > 0 || error("Sampling rate must be positive")
+        return (Int(floor(upper / 2)), upper)
+    end
+
+    values = sampling_rate isa Tuple ? collect(sampling_rate) : collect(sampling_rate)
+    length(values) == 2 || error("Sampling rate must be `nothing`, a scalar, or exactly two numbers")
+
+    low = Int(values[1])
+    high = Int(values[2])
+    low > 0 || error("Sampling rate lower bound must be positive")
+    high > 0 || error("Sampling rate upper bound must be positive")
+    low <= high || error("Sampling rate lower bound must be <= upper bound")
+    return (low, high)
 end
 
 """
@@ -96,38 +160,66 @@ Create a DDA analysis request.
 - `ct_window_length`: CT-specific window length
 - `ct_window_step`: CT-specific window step
 - `delays`: Delay (tau) values, default `$(DEFAULT_DELAYS)`
-- `model_encoding`: Model term indices, default `$(DDADefaults.MODEL_PARAMS)`
-- `dm::Int=$(DDADefaults.MODEL_DIMENSION)`: Embedding dimension
+- `model::Vector{Int}=$(DDADefaults.MODEL_PARAMS)`: Model term indices passed to `-MODEL`
+- `model_encoding`: Backward-compatible alias for `model`
+- `model_dimension::Int=$(DDADefaults.MODEL_DIMENSION)`: Model dimension (`-dm`)
+- `dm`: Backward-compatible alias for `model_dimension`
 - `order::Int=$(DDADefaults.POLYNOMIAL_ORDER)`: Polynomial order
 - `nr_tau::Int=$(DDADefaults.NUM_TAU)`: Number of tau values
 - `time_range`: Optional `(start, stop)` in samples
-- `ct_pairs`: CT channel pairs (0-based)
-- `cd_pairs`: CD directed pairs (0-based)
-- `sampling_rate`: Sampling rate in Hz
+- `ct_pairs`: CT channel pairs (1-based)
+- `cd_pairs`: CD directed pairs (1-based)
+- `sampling_rate`: Optional `-SR` pair. Defaults to `$(DDADefaults.SAMPLING_RATE)`
+- `out_fn`: Optional output base passed to `-OUT_FN`
 """
 function DDARequest(
-    file_path::String,
-    channels::Vector{Int},
-    variants::Vector{String};
+    file_path::AbstractString,
+    channels::AbstractVector{<:Integer},
+    variants::AbstractVector{<:AbstractString};
     window_length::Int=DDADefaults.WINDOW_LENGTH,
     window_step::Int=DDADefaults.WINDOW_STEP,
     ct_window_length::Union{Int, Nothing}=nothing,
     ct_window_step::Union{Int, Nothing}=nothing,
     delays::Vector{Int}=collect(DEFAULT_DELAYS),
-    model_encoding::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
-    dm::Int=DDADefaults.MODEL_DIMENSION,
+    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model_encoding::Union{Vector{Int}, Nothing}=nothing,
+    model_dimension::Union{Int, Nothing}=nothing,
+    dm::Union{Int, Nothing}=nothing,
     order::Int=DDADefaults.POLYNOMIAL_ORDER,
     nr_tau::Int=DDADefaults.NUM_TAU,
-    time_range::Union{Tuple{Float64, Float64}, Nothing}=nothing,
-    ct_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}=nothing,
-    cd_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}=nothing,
-    sampling_rate::Union{Float64, Nothing}=nothing,
+    time_range::Union{Tuple{Real, Real}, Nothing}=nothing,
+    ct_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
+    cd_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
+    sampling_rate::Union{
+        Nothing,
+        Real,
+        Tuple{Real, Real},
+        AbstractVector{<:Real},
+    }=DDADefaults.SAMPLING_RATE,
+    out_fn::Union{AbstractString, Nothing}=nothing,
 )
+    normalized_channels = _normalize_channels(channels)
+    normalized_variants = String[variants...]
     wp = WindowParameters(window_length, window_step, ct_window_length, ct_window_step)
-    dp = DelayParameters(delays)
-    mp = ModelParameters(dm, order, nr_tau)
-    tr = time_range === nothing ? nothing : TimeRange(time_range[1], time_range[2])
-    return DDARequest(file_path, channels, variants, wp, dp, mp, model_encoding, tr, ct_pairs, cd_pairs, sampling_rate)
+    dp = DelayParameters(Int[delays...])
+    mp = ModelParameters(_resolve_model_dimension(model_dimension, dm), order, nr_tau)
+    terms = Int[something(model_encoding, model)...]
+    tr = time_range === nothing ? nothing : TimeRange(Float64(time_range[1]), Float64(time_range[2]))
+    normalized_out_fn = out_fn === nothing ? nothing : expanduser(String(out_fn))
+    return DDARequest(
+        String(file_path),
+        normalized_channels,
+        normalized_variants,
+        wp,
+        dp,
+        mp,
+        terms,
+        tr,
+        _normalize_pairs(ct_pairs),
+        _normalize_pairs(cd_pairs),
+        _normalize_sampling_rate(sampling_rate),
+        normalized_out_fn,
+    )
 end
 
 # =============================================================================
@@ -183,8 +275,9 @@ Handles execution of the run_DDA_AsciiEdf binary.
 
 # Example
 ```julia
-runner = DDARunner()             # auto-discover
-runner = DDARunner("/path/to/binary")  # explicit
+runner = DDARunner()  # auto-discover
+runner = DDARunner("/path/to/run_DDA_AsciiEdf")
+runner = DDARunner(; dda_home="/opt/dda")
 ```
 """
 struct DDARunner
@@ -200,20 +293,25 @@ struct DDARunner
 end
 
 """
-    DDARunner()
+    DDARunner(; binary_path=nothing, dda_home=nothing)
 
-Create a DDARunner by auto-discovering the binary.
+Create a runner by resolving the DDA binary from an explicit binary path or DDA home.
+Calling `DDARunner()` with no arguments uses auto-discovery.
 """
-function DDARunner()
-    path = find_binary()
-    if path === nothing
-        error(
-            "DDA binary '$(BINARY_NAME)' not found. " *
-            "Set \$$(BINARY_ENV_VAR) or \$$(BINARY_HOME_ENV_VAR), " *
-            "or install to one of: $(DEFAULT_BINARY_PATHS)"
-        )
+function DDARunner(;
+    binary_path::Union{AbstractString, Nothing}=nothing,
+    dda_home::Union{AbstractString, Nothing}=nothing,
+)
+    return DDARunner(require_binary(binary_path; dda_home=dda_home))
+end
+
+function _resolve_output_base(request::DDARequest)::Tuple{String, Bool}
+    if request.out_fn !== nothing
+        mkpath(dirname(request.out_fn))
+        return (request.out_fn, false)
     end
-    return DDARunner(path)
+    analysis_id = string(UUIDs.uuid4())
+    return (joinpath(tempdir(), "dda_output_$(analysis_id)"), true)
 end
 
 # =============================================================================
@@ -230,32 +328,33 @@ function run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{S
         error("Input file not found: $(request.file_path)")
     end
 
-    analysis_id = string(UUIDs.uuid4())
-    output_base = joinpath(tempdir(), "dda_output_$(analysis_id)")
+    output_base, cleanup_output = _resolve_output_base(request)
     cmd = build_command(runner, request, output_base)
 
-    try
-        run(cmd)
-    catch e
-        error("DDA execution failed: $e")
-    end
-
     results = Dict{String, Vector{StructuredChannelData}}()
-    for variant_abbrev in request.variants
-        variant = get_variant_by_abbrev(variant_abbrev)
-        variant === nothing && continue
-
-        actual_file = _find_output_file(output_base, variant, variant_abbrev)
-        actual_file === nothing && continue
-
-        channels = parse_output_file_structured(actual_file, variant.stride)
-        if !isempty(channels)
-            results[variant_abbrev] = channels
+    try
+        try
+            run(cmd)
+        catch e
+            error("DDA execution failed: $e")
         end
-    end
 
-    cleanup_temp_files(output_base, request.variants)
-    return results
+        for variant_abbrev in request.variants
+            variant = get_variant_by_abbrev(variant_abbrev)
+            variant === nothing && continue
+
+            actual_file = _find_output_file(output_base, variant, variant_abbrev)
+            actual_file === nothing && continue
+
+            channels = parse_output_file_structured(actual_file, variant.stride)
+            if !isempty(channels)
+                results[variant_abbrev] = channels
+            end
+        end
+        return results
+    finally
+        cleanup_output && cleanup_temp_files(output_base, request.variants)
+    end
 end
 
 """
@@ -265,6 +364,24 @@ Execute DDA with auto-discovered binary.
 """
 function run_analysis_structured(request::DDARequest)::Dict{String, Vector{StructuredChannelData}}
     runner = DDARunner()
+    return run_analysis_structured(runner, request)
+end
+
+"""
+    run_analysis_structured(file_path, channels, variants; binary_path=nothing, dda_home=nothing, kwargs...)
+
+Execute DDA without constructing a `DDARequest` explicitly.
+"""
+function run_analysis_structured(
+    file_path::AbstractString,
+    channels::AbstractVector{<:Integer},
+    variants::AbstractVector{<:AbstractString};
+    binary_path::Union{AbstractString, Nothing}=nothing,
+    dda_home::Union{AbstractString, Nothing}=nothing,
+    kwargs...,
+)::Dict{String, Vector{StructuredChannelData}}
+    runner = DDARunner(; binary_path=binary_path, dda_home=dda_home)
+    request = DDARequest(file_path, channels, variants; kwargs...)
     return run_analysis_structured(runner, request)
 end
 
@@ -283,24 +400,27 @@ function run_analysis(runner::DDARunner, request::DDARequest)::DDAResult
     end
 
     analysis_id = string(UUIDs.uuid4())
-    output_base = joinpath(tempdir(), "dda_output_$(analysis_id)")
+    output_base, cleanup_output = _resolve_output_base(request)
     cmd = build_command(runner, request, output_base)
+    variant_results = VariantResultData[]
 
     try
-        run(cmd)
-    catch e
-        error("DDA execution failed: $e")
+        try
+            run(cmd)
+        catch e
+            error("DDA execution failed: $e")
+        end
+        variant_results = parse_results_legacy(request, output_base)
+    finally
+        cleanup_output && cleanup_temp_files(output_base, request.variants)
     end
-
-    variant_results = parse_results_legacy(request, output_base)
-    cleanup_temp_files(output_base, request.variants)
 
     if isempty(variant_results)
         error("No data extracted from DDA output")
     end
 
     primary = first(variant_results)
-    channel_labels = ["Channel $(ch + 1)" for ch in request.channels]
+    channel_labels = ["Channel $ch" for ch in request.channels]
 
     return DDAResult(
         analysis_id, request.file_path, channel_labels,
@@ -320,6 +440,24 @@ function run_analysis(request::DDARequest)::DDAResult
     return run_analysis(runner, request)
 end
 
+"""
+    run_analysis(file_path, channels, variants; binary_path=nothing, dda_home=nothing, kwargs...)
+
+Execute the DDA binary without constructing a `DDARequest` explicitly.
+"""
+function run_analysis(
+    file_path::AbstractString,
+    channels::AbstractVector{<:Integer},
+    variants::AbstractVector{<:AbstractString};
+    binary_path::Union{AbstractString, Nothing}=nothing,
+    dda_home::Union{AbstractString, Nothing}=nothing,
+    kwargs...,
+)::DDAResult
+    runner = DDARunner(; binary_path=binary_path, dda_home=dda_home)
+    request = DDARequest(file_path, channels, variants; kwargs...)
+    return run_analysis(runner, request)
+end
+
 # =============================================================================
 # COMMAND BUILDING
 # =============================================================================
@@ -336,10 +474,10 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     push!(args, "-DATA_FN", request.file_path)
     push!(args, "-OUT_FN", output_base)
 
-    # Channels (0-based → 1-based)
+    # Channels are already 1-based for Julia callers and for the binary.
     push!(args, "-CH_list")
     for ch in request.channels
-        push!(args, string(ch + 1))
+        push!(args, string(ch))
     end
 
     # SELECT mask
@@ -351,7 +489,7 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
 
     # Model encoding
     push!(args, "-MODEL")
-    for p in request.model_encoding
+    for p in request.model_terms
         push!(args, string(p))
     end
 
@@ -391,10 +529,9 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
         push!(args, "-StartEnd", string(Int(tr.start)), string(Int(tr.stop)))
     end
 
-    # Sampling rate for high-frequency data
-    if request.sampling_rate !== nothing && request.sampling_rate > 1000.0
-        sr = request.sampling_rate
-        push!(args, "-SR", string(Int(sr / 2)), string(Int(sr)))
+    # Sampling rate pair passed directly to -SR.
+    if request.sampling_rate !== nothing
+        push!(args, "-SR", string(request.sampling_rate[1]), string(request.sampling_rate[2]))
     end
 
     if REQUIRES_SHELL_WRAPPER && !Sys.iswindows()
@@ -442,12 +579,12 @@ function parse_output_file_structured(filepath::String, stride::Integer)::Vector
     num_channels = div(num_data_cols, stride)
     channels = StructuredChannelData[]
 
-    for ch_idx in 0:(num_channels - 1)
+    for ch_idx in 1:num_channels
         timepoints = StructuredTimepoint[]
         for row in data_rows
             win_start = Int64(row[1])
             win_end = Int64(row[2])
-            start_col = 3 + ch_idx * stride  # 1-indexed
+            start_col = 3 + (ch_idx - 1) * stride
             end_col = start_col + stride - 1
             channel_values = row[start_col:end_col]
 
@@ -524,7 +661,7 @@ function parse_results_legacy(request::DDARequest, output_base::String)::Vector{
         q_matrix = parse_output_file(actual_file, variant.stride)
         isempty(q_matrix) && continue
 
-        channel_labels = ["Channel $(ch + 1)" for ch in request.channels]
+        channel_labels = ["Channel $ch" for ch in request.channels]
         if size(q_matrix, 1) < length(channel_labels)
             channel_labels = channel_labels[1:size(q_matrix, 1)]
         end

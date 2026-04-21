@@ -18,35 +18,39 @@ using DelayDifferentialAnalysis
         @testset "Basic construction" begin
             request = DDARequest(
                 "test.edf",
-                [0, 1, 2],
+                [1, 2, 3],
                 ["ST", "SY"]
             )
 
             @test request.file_path == "test.edf"
-            @test request.channels == [0, 1, 2]
+            @test request.channels == [1, 2, 3]
             @test request.variants == ["ST", "SY"]
             @test request.window_params.window_length == 200   # Default (DDADefaults.WINDOW_LENGTH)
             @test request.window_params.window_step == 100    # Default (DDADefaults.WINDOW_STEP)
             @test request.delay_params.delays == collect(DEFAULT_DELAYS)
+            @test request.model_terms == DelayDifferentialAnalysis.DDADefaults.MODEL_PARAMS
+            @test request.sampling_rate == DelayDifferentialAnalysis.DDADefaults.SAMPLING_RATE
         end
 
         @testset "With custom parameters" begin
             request = DDARequest(
                 "data.edf",
-                [0, 1],
+                [1, 2],
                 ["ST", "CT", "CD"];
                 window_length=4096,
                 window_step=2048,
                 ct_window_length=4,
                 ct_window_step=2,
                 delays=[1, 2, 3, 4, 5],
-                dm=6,
+                model=[4, 7, 9],
+                model_dimension=6,
                 order=5,
                 nr_tau=3,
                 time_range=(0.0, 10000.0),
-                ct_pairs=[(0, 1)],
-                cd_pairs=[(0, 1), (1, 0)],
-                sampling_rate=2048.0
+                ct_pairs=[(1, 2)],
+                cd_pairs=[(1, 2), (2, 1)],
+                sampling_rate=(500, 1000),
+                out_fn="/tmp/custom_dda_output"
             )
 
             @test request.window_params.window_length == 4096
@@ -57,19 +61,26 @@ using DelayDifferentialAnalysis
             @test request.model_params.dm == 6
             @test request.model_params.order == 5
             @test request.model_params.nr_tau == 3
+            @test request.model_terms == [4, 7, 9]
             @test request.time_range.start == 0.0
             @test request.time_range.stop == 10000.0
-            @test request.ct_channel_pairs == [(0, 1)]
-            @test request.cd_channel_pairs == [(0, 1), (1, 0)]
-            @test request.sampling_rate == 2048.0
+            @test request.ct_channel_pairs == [(1, 2)]
+            @test request.cd_channel_pairs == [(1, 2), (2, 1)]
+            @test request.sampling_rate == (500, 1000)
+            @test request.out_fn == "/tmp/custom_dda_output"
         end
 
         @testset "Default model parameters" begin
-            request = DDARequest("test.edf", [0], ["ST"])
+            request = DDARequest("test.edf", [1], ["ST"])
 
             @test request.model_params.dm == 4
             @test request.model_params.order == 4
             @test request.model_params.nr_tau == 2
+        end
+
+        @testset "Scalar sampling rate is normalized to a pair" begin
+            request = DDARequest("test.edf", [1], ["ST"]; sampling_rate=2048)
+            @test request.sampling_rate == (1024, 2048)
         end
     end
 
@@ -106,7 +117,7 @@ using DelayDifferentialAnalysis
         @testset "run_analysis fails gracefully with missing file" begin
             request = DDARequest(
                 "/nonexistent/path/to/file.edf",
-                [0, 1, 2],
+                [1, 2, 3],
                 ["ST", "SY"];
                 window_length=2048,
                 window_step=1024
@@ -155,6 +166,21 @@ using DelayDifferentialAnalysis
                 if find_binary() === nothing
                     @test_throws ErrorException DDARunner()
                 end
+            end
+        end
+
+        @testset "Explicit dda_home resolves binary" begin
+            temp_home = mktempdir()
+            fake_bin_dir = joinpath(temp_home, "bin")
+            mkpath(fake_bin_dir)
+            fake_binary = joinpath(fake_bin_dir, BINARY_NAME)
+            touch(fake_binary)
+
+            try
+                runner = DDARunner(; dda_home=temp_home)
+                @test runner.binary_path == fake_binary
+            finally
+                rm(temp_home; recursive=true, force=true)
             end
         end
     end
@@ -213,7 +239,7 @@ using DelayDifferentialAnalysis
                 @testset "Run ST analysis" begin
                     request = DDARequest(
                         test_data,
-                        [0, 1, 2],
+                        [1, 2, 3],
                         ["ST"];
                         window_length=2048,
                         window_step=1024,
@@ -241,7 +267,7 @@ using DelayDifferentialAnalysis
                 @testset "Run multiple variants" begin
                     request = DDARequest(
                         test_data,
-                        [0, 1],
+                        [1, 2],
                         ["ST", "SY"];
                         window_length=2048,
                         window_step=1024,
@@ -264,6 +290,69 @@ using DelayDifferentialAnalysis
                     end
                 end
             end
+        end
+    end
+
+    @testset "Direct run_analysis API" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            err = nothing
+            try
+                run_analysis(
+                    "/nonexistent/path/to/file.edf",
+                    [1, 2, 3],
+                    ["ST"];
+                    binary_path=fake_binary,
+                )
+            catch e
+                err = e
+            end
+
+            @test err !== nothing
+            @test occursin("Input file not found", string(err))
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "Command building uses explicit MODEL OUT_FN SR and 1-based channels" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            request = DDARequest(
+                "test.edf",
+                [1, 3, 5],
+                ["ST"];
+                model=[1, 2, 10],
+                out_fn="/tmp/dda_custom_output",
+                sampling_rate=(500, 1000),
+            )
+            output_base, cleanup_output = DelayDifferentialAnalysis.Runner._resolve_output_base(request)
+            cmd = DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                request,
+                output_base,
+            )
+            argv = collect(cmd)
+
+            if Sys.iswindows()
+                @test argv[1] == fake_binary
+            else
+                @test argv[1] == "sh"
+                @test argv[2] == fake_binary
+            end
+            @test cleanup_output == false
+            @test "-OUT_FN" in argv
+            @test argv[findfirst(==("-OUT_FN"), argv) + 1] == "/tmp/dda_custom_output"
+            @test argv[(findfirst(==("-CH_list"), argv) + 1):(findfirst(==("-SELECT"), argv) - 1)] == ["1", "3", "5"]
+            @test argv[(findfirst(==("-MODEL"), argv) + 1):(findfirst(==("-TAU"), argv) - 1)] == ["1", "2", "10"]
+            @test argv[(findfirst(==("-SR"), argv) + 1):(findfirst(==("-SR"), argv) + 2)] == ["500", "1000"]
+        finally
+            rm(fake_binary, force=true)
         end
     end
 end

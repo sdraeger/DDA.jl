@@ -7,8 +7,15 @@ Julia bindings for Delay Differential Analysis (DDA).
 ```julia
 using DelayDifferentialAnalysis
 
-data = randn(3, 10000)  # 3 channels, 10000 samples
-result = run_st(data; sfreq=256.0, delays=[7, 10], wl=200, ws=100)
+result = run_st(
+    "data.edf",
+    [1, 2, 3];
+    dda_home="/opt/dda",
+    model=[1, 2, 10],
+    sampling_rate=(500, 1000),
+    wl=200,
+    ws=100,
+)
 println(n_channels(result))           # 3
 println(n_windows(result))            # depends on data length
 println(result.coefficients |> size)  # (3, n_windows, 3)
@@ -16,13 +23,13 @@ println(result.coefficients |> size)  # (3, n_windows, 3)
 
 # Cross-Timeseries
 ```julia
-result = run_ct(data; sfreq=256.0, delays=[7, 10], wl=200, ws=100)
+result = run_ct("data.edf", [1, 2, 3]; dda_home="/opt/dda", wl=200, ws=100)
 println(n_pairs(result))  # 3 pairs for 3 channels
 ```
 
 # Dynamical Ergodicity
 ```julia
-result = run_de(data; sfreq=256.0, delays=[7, 10], wl=200, ws=100)
+result = run_de("data.edf", [1, 2, 3]; dda_home="/opt/dda", wl=200, ws=100)
 println(result.ergodicity |> length)
 ```
 
@@ -34,9 +41,14 @@ println(decode_model_encoding([1, 2, 10]; num_delays=2, polynomial_order=4))
 
 # Low-Level API
 ```julia
-runner = DDARunner()
-request = DDARequest("data.edf", [0, 1, 2], ["ST"]; window_length=200, window_step=100)
-result = run_analysis(runner, request)
+result = run_analysis(
+    "data.edf",
+    [1, 2, 3],
+    ["ST"];
+    dda_home="/opt/dda",
+    window_length=200,
+    window_step=100,
+)
 ```
 """
 module DelayDifferentialAnalysis

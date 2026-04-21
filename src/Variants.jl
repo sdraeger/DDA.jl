@@ -55,17 +55,27 @@ const DEFAULT_BINARY_PATHS = [
     "/opt/dda/bin",
 ]
 
+function _binary_candidates_from_home(home::AbstractString)::Vector{String}
+    root = expanduser(home)
+    return [
+        joinpath(root, BINARY_NAME),
+        joinpath(root, "bin", BINARY_NAME),
+    ]
+end
+
 """
 Find the DDA binary.
 
 Resolution order:
 1. Explicit path (if provided)
-2. \$$(BINARY_ENV_VAR) environment variable
-3. \$$(BINARY_HOME_ENV_VAR)/bin/ directory
-4. Default search paths
+2. Explicit `dda_home` directory
+3. \$$(BINARY_ENV_VAR) environment variable
+4. \$$(BINARY_HOME_ENV_VAR)/bin/ directory
+5. Default search paths
 
 # Arguments
 - `explicit_path::Union{AbstractString, Nothing}=nothing`: Optional explicit path
+- `dda_home::Union{AbstractString, Nothing}=nothing`: Optional DDA home directory
 
 # Returns
 - `Union{String, Nothing}`: Path to binary if found, nothing otherwise
@@ -73,10 +83,14 @@ Resolution order:
 # Examples
 ```julia
 path = find_binary()  # Auto-discover
-path = find_binary("/opt/dda/bin/run_DDA_AsciiEdf")  # Explicit
+path = find_binary("/opt/dda/bin/run_DDA_AsciiEdf")  # Explicit binary
+path = find_binary(; dda_home="/opt/dda")  # Explicit DDA home
 ```
 """
-function find_binary(explicit_path::Union{AbstractString, Nothing}=nothing)::Union{String, Nothing}
+function find_binary(
+    explicit_path::Union{AbstractString, Nothing}=nothing;
+    dda_home::Union{AbstractString, Nothing}=nothing,
+)::Union{String, Nothing}
     # 1. Explicit path
     if explicit_path !== nothing
         p = expanduser(explicit_path)
@@ -84,21 +98,29 @@ function find_binary(explicit_path::Union{AbstractString, Nothing}=nothing)::Uni
         return nothing
     end
 
-    # 2. Environment variable for full path
+    # 2. Explicit DDA home directory
+    if dda_home !== nothing
+        for candidate in _binary_candidates_from_home(dda_home)
+            isfile(candidate) && return candidate
+        end
+    end
+
+    # 3. Environment variable for full path
     env_path = get(ENV, BINARY_ENV_VAR, nothing)
     if env_path !== nothing
         p = expanduser(env_path)
         isfile(p) && return p
     end
 
-    # 3. DDA_HOME environment variable
+    # 4. DDA_HOME environment variable
     home_path = get(ENV, BINARY_HOME_ENV_VAR, nothing)
     if home_path !== nothing
-        p = joinpath(expanduser(home_path), "bin", BINARY_NAME)
-        isfile(p) && return p
+        for candidate in _binary_candidates_from_home(home_path)
+            isfile(candidate) && return candidate
+        end
     end
 
-    # 4. Default search paths
+    # 5. Default search paths
     for search_path in DEFAULT_BINARY_PATHS
         p = joinpath(expanduser(search_path), BINARY_NAME)
         isfile(p) && return p
@@ -114,6 +136,7 @@ Same as `find_binary()` but throws an error if not found.
 
 # Arguments
 - `explicit_path::Union{AbstractString, Nothing}=nothing`: Optional explicit path
+- `dda_home::Union{AbstractString, Nothing}=nothing`: Optional DDA home directory
 
 # Returns
 - `String`: Path to binary
@@ -121,12 +144,16 @@ Same as `find_binary()` but throws an error if not found.
 # Throws
 - `ErrorException`: If binary cannot be found
 """
-function require_binary(explicit_path::Union{AbstractString, Nothing}=nothing)::String
-    path = find_binary(explicit_path)
+function require_binary(
+    explicit_path::Union{AbstractString, Nothing}=nothing;
+    dda_home::Union{AbstractString, Nothing}=nothing,
+)::String
+    path = find_binary(explicit_path; dda_home=dda_home)
     if path === nothing
         error(
             "DDA binary '$(BINARY_NAME)' not found. " *
-            "Set \$$(BINARY_ENV_VAR) or \$$(BINARY_HOME_ENV_VAR), " *
+            "Pass `binary_path=` or `dda_home=`, " *
+            "set \$$(BINARY_ENV_VAR) or \$$(BINARY_HOME_ENV_VAR), " *
             "or install to one of: $(DEFAULT_BINARY_PATHS)"
         )
     end
