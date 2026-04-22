@@ -215,7 +215,6 @@ using DelayDifferentialAnalysis
 
         if binary_path === nothing
             @info "Skipping binary integration tests: DDA binary not found"
-            @test_skip true
         else
             @info "Found DDA binary at: $binary_path"
 
@@ -234,7 +233,6 @@ using DelayDifferentialAnalysis
 
             if test_data === nothing
                 @info "Skipping integration tests: test data not found"
-                @test_skip true
             else
                 @testset "Run ST analysis" begin
                     request = DDARequest(

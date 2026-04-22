@@ -9,7 +9,6 @@ using DelayDifferentialAnalysis
     @testset "run_st integration" begin
         if !binary_available
             @info "Skipping run_st integration test: DDA binary not found"
-            @test_skip false
         else
             data = randn(2, 10000)
             result = run_st(data; sfreq=256.0, wl=200, ws=100)
@@ -26,7 +25,6 @@ using DelayDifferentialAnalysis
     @testset "run_st custom labels" begin
         if !binary_available
             @info "Skipping run_st custom labels test: DDA binary not found"
-            @test_skip false
         else
             data = randn(2, 10000)
             result = run_st(data; sfreq=256.0, wl=200, ws=100,
@@ -38,7 +36,6 @@ using DelayDifferentialAnalysis
     @testset "run_ct integration" begin
         if !binary_available
             @info "Skipping run_ct integration test: DDA binary not found"
-            @test_skip false
         else
             # CT needs more data and explicit CT window params
             data = randn(3, 20000)
@@ -78,7 +75,6 @@ using DelayDifferentialAnalysis
     @testset "matrix API smoke test with repo binary" begin
         if !isfile(repo_binary)
             @info "Skipping matrix API smoke test: repo binary not found"
-            @test_skip false
         else
             data = randn(3, 20_000)
 
@@ -97,7 +93,6 @@ using DelayDifferentialAnalysis
     @testset "run_de integration" begin
         if !binary_available
             @info "Skipping run_de integration test: DDA binary not found"
-            @test_skip false
         else
             # DE needs more data
             data = randn(2, 20000)

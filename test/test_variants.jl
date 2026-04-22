@@ -755,7 +755,6 @@ end
         @info "Skipping binary integration tests: binary or test data not found"
         @info "Binary path: $binary_path"
         @info "Test data: $test_data"
-        @test_skip true
     else
         @testset "ST variant shell execution" begin
             # Create temp output file

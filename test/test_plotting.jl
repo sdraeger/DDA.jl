@@ -12,7 +12,6 @@ using DelayDifferentialAnalysis
 
     if !plots_available
         @info "Skipping plotting tests: Plots.jl not available"
-        @test_skip false
     else
         @testset "plot_coefficients" begin
             r = STResult(

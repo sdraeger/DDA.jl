@@ -5,7 +5,7 @@ using DelayDifferentialAnalysis
 @testset "Cross-Language Conformance Contract" begin
     dda_defaults = DelayDifferentialAnalysis.DDADefaults
 
-    contract_path = normpath(joinpath(@__DIR__, "..", "..", "..", "conformance", "dda_conformance_contract.json"))
+    contract_path = normpath(joinpath(@__DIR__, "..", "conformance", "dda_conformance_contract.json"))
     contract = JSON3.read(read(contract_path, String))
 
     defaults = contract.defaults
