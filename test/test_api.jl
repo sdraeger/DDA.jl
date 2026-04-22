@@ -57,6 +57,41 @@ using DelayDifferentialAnalysis
         @test_throws ErrorException run_ct(data; sfreq=256.0)
     end
 
+    @testset "file-based label resolution uses file metadata when available" begin
+        temp_dir = mktempdir()
+        ascii_path = joinpath(temp_dir, "labels.tsv")
+
+        open(ascii_path, "w") do io
+            println(io, "Fp1\tFp2\tC3")
+            println(io, "1\t2\t3")
+            println(io, "4\t5\t6")
+        end
+
+        try
+            labels = DelayDifferentialAnalysis.API._resolve_labels(ascii_path, [1, 3], nothing)
+            @test labels == ["Fp1", "C3"]
+        finally
+            rm(temp_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "file-based label resolution falls back to compact defaults without header" begin
+        temp_dir = mktempdir()
+        ascii_path = joinpath(temp_dir, "numeric.tsv")
+
+        open(ascii_path, "w") do io
+            println(io, "1\t2\t3")
+            println(io, "4\t5\t6")
+        end
+
+        try
+            labels = DelayDifferentialAnalysis.API._resolve_labels(ascii_path, [1, 3], nothing)
+            @test labels == ["ch1", "ch3"]
+        finally
+            rm(temp_dir; recursive=true, force=true)
+        end
+    end
+
     @testset "file-based API reports missing input cleanly" begin
         fake_binary = tempname()
         touch(fake_binary)

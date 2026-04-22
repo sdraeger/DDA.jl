@@ -149,6 +149,109 @@ function _normalize_sampling_rate(
     return (low, high)
 end
 
+function _fallback_channel_label(channel::Integer, fallback_prefix::String)::String
+    return string(fallback_prefix, Int(channel))
+end
+
+function _sanitize_channel_label(label::AbstractString)::String
+    cleaned = replace(String(label), '\0' => ' ')
+    cleaned = strip(cleaned)
+    isempty(cleaned) && return ""
+    return strip(cleaned, ['"', '\''])
+end
+
+function _read_edf_channel_labels(file_path::AbstractString)::Union{Vector{String}, Nothing}
+    open(file_path, "r") do io
+        fixed_header = read(io, 256)
+        length(fixed_header) == 256 || return nothing
+
+        signal_count = tryparse(Int, strip(String(fixed_header[253:256])))
+        signal_count === nothing && return nothing
+        signal_count > 0 || return nothing
+
+        labels = String[]
+        for _ in 1:signal_count
+            field = read(io, 16)
+            length(field) == 16 || return nothing
+            push!(labels, _sanitize_channel_label(String(field)))
+        end
+        return labels
+    end
+end
+
+function _split_ascii_fields(line::AbstractString)::Vector{String}
+    stripped = strip(replace(line, '\ufeff' => ' '))
+    isempty(stripped) && return String[]
+
+    if occursin('\t', stripped)
+        parts = split(stripped, '\t'; keepempty=true)
+    elseif occursin(',', stripped)
+        parts = split(stripped, ','; keepempty=true)
+    else
+        parts = split(stripped)
+    end
+
+    return [_sanitize_channel_label(part) for part in parts]
+end
+
+function _is_numeric_field(field::AbstractString)::Bool
+    stripped = strip(field)
+    isempty(stripped) && return false
+    return tryparse(Float64, stripped) !== nothing
+end
+
+function _read_ascii_channel_labels(file_path::AbstractString)::Union{Vector{String}, Nothing}
+    for line in eachline(file_path)
+        stripped = strip(replace(line, '\ufeff' => ' '))
+        (isempty(stripped) || startswith(stripped, '#')) && continue
+
+        fields = _split_ascii_fields(stripped)
+        isempty(fields) && continue
+
+        all(_is_numeric_field, fields) && return nothing
+        return fields
+    end
+
+    return nothing
+end
+
+function _infer_input_channel_labels(file_path::AbstractString)::Union{Vector{String}, Nothing}
+    isfile(file_path) || return nothing
+
+    try
+        ext = lowercase(splitext(String(file_path))[2])
+        labels = ext == ".edf" ? _read_edf_channel_labels(file_path) : _read_ascii_channel_labels(file_path)
+        labels === nothing && return nothing
+        any(!isempty, labels) || return nothing
+        return labels
+    catch
+        return nothing
+    end
+end
+
+function _resolve_requested_channel_labels(
+    file_path::AbstractString,
+    channels::AbstractVector{<:Integer};
+    fallback_prefix::String="Channel ",
+)::Vector{String}
+    inferred = _infer_input_channel_labels(file_path)
+    resolved = String[]
+
+    for channel in channels
+        idx = Int(channel)
+        if inferred !== nothing && idx <= length(inferred)
+            label = _sanitize_channel_label(inferred[idx])
+            if !isempty(label)
+                push!(resolved, label)
+                continue
+            end
+        end
+        push!(resolved, _fallback_channel_label(idx, fallback_prefix))
+    end
+
+    return resolved
+end
+
 """
     DDARequest(file_path, channels, variants; kwargs...)
 
@@ -417,7 +520,11 @@ function run_analysis(runner::DDARunner, request::DDARequest)::DDAResult
     end
 
     primary = first(variant_results)
-    channel_labels = ["Channel $ch" for ch in request.channels]
+    channel_labels = _resolve_requested_channel_labels(
+        request.file_path,
+        request.channels;
+        fallback_prefix="Channel ",
+    )
 
     return DDAResult(
         analysis_id, request.file_path, channel_labels,
@@ -647,6 +754,12 @@ end
 
 function parse_results_legacy(request::DDARequest, output_base::String)::Vector{VariantResultData}
     results = VariantResultData[]
+    base_labels = _resolve_requested_channel_labels(
+        request.file_path,
+        request.channels;
+        fallback_prefix="Channel ",
+    )
+
     for variant_abbrev in request.variants
         variant = get_variant_by_abbrev(variant_abbrev)
         variant === nothing && continue
@@ -657,7 +770,7 @@ function parse_results_legacy(request::DDARequest, output_base::String)::Vector{
         q_matrix = parse_output_file(actual_file, variant.stride)
         isempty(q_matrix) && continue
 
-        channel_labels = ["Channel $ch" for ch in request.channels]
+        channel_labels = copy(base_labels)
         if size(q_matrix, 1) < length(channel_labels)
             channel_labels = channel_labels[1:size(q_matrix, 1)]
         end

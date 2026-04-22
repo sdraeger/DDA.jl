@@ -112,6 +112,7 @@ result = run_st(
 ## Important Parameter Notes
 
 - `channels` are 1-indexed everywhere in the Julia API
+- File-based calls infer channel labels from EDF headers and from optional ASCII/TSV header rows. Pass `channel_labels` to override them explicitly.
 - `model` maps directly to the binary `-MODEL` argument and defaults to `[1, 2, 10]`
 - `model_dimension` is the DDA model dimension passed to `-dm`
 - `sampling_rate` maps directly to `-SR low high` and defaults to `(500, 1000)`

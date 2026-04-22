@@ -37,6 +37,20 @@ function _resolve_labels(
     return labels
 end
 
+function _resolve_labels(
+    file_path::AbstractString,
+    channels::AbstractVector{<:Integer},
+    channel_labels::Union{Vector{String}, Nothing},
+)::Vector{String}
+    labels = if channel_labels === nothing
+        Runner._resolve_requested_channel_labels(file_path, channels; fallback_prefix="ch")
+    else
+        copy(channel_labels)
+    end
+    length(labels) == length(channels) || error("Expected $(length(channels)) channel labels, got $(length(labels))")
+    return labels
+end
+
 function _pair_labels(labels::Vector{String})::Vector{String}
     pairs = String[]
     for i in 1:length(labels), j in (i + 1):length(labels)
@@ -268,7 +282,7 @@ function run_st(
     sampling_rate=DDADefaults.SAMPLING_RATE,
 )::STResult
     selected_channels = Runner._normalize_channels(channels)
-    labels = _resolve_labels(selected_channels, channel_labels)
+    labels = _resolve_labels(file_path, selected_channels, channel_labels)
     model_dimension_value = Runner._resolve_model_dimension(model_dimension, dm)
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
 
@@ -333,7 +347,7 @@ function run_ct(
     selected_channels = Runner._normalize_channels(channels)
     length(selected_channels) >= 2 || error("CT analysis requires at least 2 channels, got $(length(selected_channels))")
 
-    labels = _resolve_labels(selected_channels, channel_labels)
+    labels = _resolve_labels(file_path, selected_channels, channel_labels)
     pair_labels = _pair_labels(labels)
     model_dimension_value = Runner._resolve_model_dimension(model_dimension, dm)
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)

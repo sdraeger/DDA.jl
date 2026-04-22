@@ -8,6 +8,42 @@ Integration tests (actual binary execution) are skipped if binary is not found.
 using Test
 using DelayDifferentialAnalysis
 
+function write_test_edf(path::String, labels::Vector{String})
+    n = length(labels)
+
+    fixed_header = string(
+        rpad("0", 8),
+        rpad("", 80),
+        rpad("", 80),
+        rpad("01.01.01", 8),
+        rpad("01.01.01", 8),
+        rpad(string(256 + 256 * n), 8),
+        rpad("", 44),
+        rpad("1", 8),
+        rpad("1", 8),
+        rpad(string(n), 4),
+    )
+
+    signal_header = string(
+        join(rpad.(labels, 16)),
+        join(fill(rpad("", 80), n)),
+        join(fill(rpad("uV", 8), n)),
+        join(fill(rpad("-1", 8), n)),
+        join(fill(rpad("1", 8), n)),
+        join(fill(rpad("-2048", 8), n)),
+        join(fill(rpad("2047", 8), n)),
+        join(fill(rpad("", 80), n)),
+        join(fill(rpad("1", 8), n)),
+        join(fill(rpad("", 32), n)),
+    )
+
+    open(path, "w") do io
+        write(io, fixed_header)
+        write(io, signal_header)
+        write(io, UInt8[0 for _ in 1:n])
+    end
+end
+
 @testset "Runner Module" begin
 
     # =============================================================================
@@ -81,6 +117,68 @@ using DelayDifferentialAnalysis
         @testset "Scalar sampling rate is normalized to a pair" begin
             request = DDARequest("test.edf", [1], ["ST"]; sampling_rate=2048)
             @test request.sampling_rate == (1024, 2048)
+        end
+    end
+
+    @testset "Input channel label inference" begin
+        @testset "EDF labels are extracted from file header" begin
+            temp_dir = mktempdir()
+            edf_path = joinpath(temp_dir, "labels.edf")
+            write_test_edf(edf_path, ["Fp1", "Fp2", "C3", "C4"])
+
+            try
+                labels = DelayDifferentialAnalysis.Runner._resolve_requested_channel_labels(
+                    edf_path,
+                    [1, 3, 4];
+                    fallback_prefix="Channel ",
+                )
+                @test labels == ["Fp1", "C3", "C4"]
+            finally
+                rm(temp_dir; recursive=true, force=true)
+            end
+        end
+
+        @testset "ASCII header labels are extracted from first non-numeric row" begin
+            temp_dir = mktempdir()
+            ascii_path = joinpath(temp_dir, "labels.tsv")
+
+            open(ascii_path, "w") do io
+                println(io, "Fp1\tFp2\tC3")
+                println(io, "1\t2\t3")
+                println(io, "4\t5\t6")
+            end
+
+            try
+                labels = DelayDifferentialAnalysis.Runner._resolve_requested_channel_labels(
+                    ascii_path,
+                    [2, 3];
+                    fallback_prefix="Channel ",
+                )
+                @test labels == ["Fp2", "C3"]
+            finally
+                rm(temp_dir; recursive=true, force=true)
+            end
+        end
+
+        @testset "ASCII files without a header fall back to synthesized labels" begin
+            temp_dir = mktempdir()
+            ascii_path = joinpath(temp_dir, "numeric.tsv")
+
+            open(ascii_path, "w") do io
+                println(io, "1\t2\t3")
+                println(io, "4\t5\t6")
+            end
+
+            try
+                labels = DelayDifferentialAnalysis.Runner._resolve_requested_channel_labels(
+                    ascii_path,
+                    [1, 3];
+                    fallback_prefix="Channel ",
+                )
+                @test labels == ["Channel 1", "Channel 3"]
+            finally
+                rm(temp_dir; recursive=true, force=true)
+            end
         end
     end
 
