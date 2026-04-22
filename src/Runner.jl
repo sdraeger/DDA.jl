@@ -201,18 +201,20 @@ function _is_numeric_field(field::AbstractString)::Bool
 end
 
 function _read_ascii_channel_labels(file_path::AbstractString)::Union{Vector{String}, Nothing}
-    for line in eachline(file_path)
-        stripped = strip(replace(line, '\ufeff' => ' '))
-        (isempty(stripped) || startswith(stripped, '#')) && continue
+    return open(file_path, "r") do io
+        for line in eachline(io)
+            stripped = strip(replace(line, '\ufeff' => ' '))
+            (isempty(stripped) || startswith(stripped, '#')) && continue
 
-        fields = _split_ascii_fields(stripped)
-        isempty(fields) && continue
+            fields = _split_ascii_fields(stripped)
+            isempty(fields) && continue
 
-        all(_is_numeric_field, fields) && return nothing
-        return fields
+            all(_is_numeric_field, fields) && return nothing
+            return fields
+        end
+
+        return nothing
     end
-
-    return nothing
 end
 
 function _infer_input_channel_labels(file_path::AbstractString)::Union{Vector{String}, Nothing}
