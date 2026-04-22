@@ -277,7 +277,6 @@ Handles execution of the run_DDA_AsciiEdf binary.
 ```julia
 runner = DDARunner()  # auto-discover
 runner = DDARunner("/path/to/run_DDA_AsciiEdf")
-runner = DDARunner(; dda_home="/opt/dda")
 ```
 """
 struct DDARunner
@@ -293,16 +292,15 @@ struct DDARunner
 end
 
 """
-    DDARunner(; binary_path=nothing, dda_home=nothing)
+    DDARunner(; binary_path=nothing)
 
-Create a runner by resolving the DDA binary from an explicit binary path or DDA home.
+Create a runner by resolving the DDA binary from an explicit binary path.
 Calling `DDARunner()` with no arguments uses auto-discovery.
 """
 function DDARunner(;
     binary_path::Union{AbstractString, Nothing}=nothing,
-    dda_home::Union{AbstractString, Nothing}=nothing,
 )
-    return DDARunner(require_binary(binary_path; dda_home=dda_home))
+    return DDARunner(require_binary(binary_path))
 end
 
 function _resolve_output_base(request::DDARequest)::Tuple{String, Bool}
@@ -368,7 +366,7 @@ function run_analysis_structured(request::DDARequest)::Dict{String, Vector{Struc
 end
 
 """
-    run_analysis_structured(file_path, channels, variants; binary_path=nothing, dda_home=nothing, kwargs...)
+    run_analysis_structured(file_path, channels, variants; binary_path=nothing, kwargs...)
 
 Execute DDA without constructing a `DDARequest` explicitly.
 """
@@ -377,10 +375,9 @@ function run_analysis_structured(
     channels::AbstractVector{<:Integer},
     variants::AbstractVector{<:AbstractString};
     binary_path::Union{AbstractString, Nothing}=nothing,
-    dda_home::Union{AbstractString, Nothing}=nothing,
     kwargs...,
 )::Dict{String, Vector{StructuredChannelData}}
-    runner = DDARunner(; binary_path=binary_path, dda_home=dda_home)
+    runner = DDARunner(; binary_path=binary_path)
     request = DDARequest(file_path, channels, variants; kwargs...)
     return run_analysis_structured(runner, request)
 end
@@ -441,7 +438,7 @@ function run_analysis(request::DDARequest)::DDAResult
 end
 
 """
-    run_analysis(file_path, channels, variants; binary_path=nothing, dda_home=nothing, kwargs...)
+    run_analysis(file_path, channels, variants; binary_path=nothing, kwargs...)
 
 Execute the DDA binary without constructing a `DDARequest` explicitly.
 """
@@ -450,10 +447,9 @@ function run_analysis(
     channels::AbstractVector{<:Integer},
     variants::AbstractVector{<:AbstractString};
     binary_path::Union{AbstractString, Nothing}=nothing,
-    dda_home::Union{AbstractString, Nothing}=nothing,
     kwargs...,
 )::DDAResult
-    runner = DDARunner(; binary_path=binary_path, dda_home=dda_home)
+    runner = DDARunner(; binary_path=binary_path)
     request = DDARequest(file_path, channels, variants; kwargs...)
     return run_analysis(runner, request)
 end

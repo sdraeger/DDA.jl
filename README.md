@@ -22,13 +22,10 @@ Pkg.add(url="https://github.com/sdraeger/DelayDifferentialAnalysis.jl")
 
 The package wraps `run_DDA_AsciiEdf`.
 
-You can resolve the binary in three ways:
+You can resolve the binary in two ways:
 
 - Pass `binary_path="/full/path/to/run_DDA_AsciiEdf"` to the API call
-- Pass `dda_home="/path/to/dda"` to the API call. The wrapper will check both `dda_home/run_DDA_AsciiEdf` and `dda_home/bin/run_DDA_AsciiEdf`
-- Rely on the existing environment/search-path fallback (`DDA_BINARY_PATH`, `DDA_HOME`, `~/.local/bin`, `~/bin`, `/usr/local/bin`, `/opt/dda/bin`)
-
-You do not need to set `DDA_HOME` as an environment variable if you pass `dda_home=` directly.
+- Rely on the existing environment/search-path fallback (`DDA_BINARY_PATH`, `~/.local/bin`, `~/bin`, `/usr/local/bin`, `/opt/dda/bin`)
 
 ## Quick Start
 
@@ -38,7 +35,7 @@ using DelayDifferentialAnalysis
 result = run_st(
     "data.edf",
     [1, 2, 3];
-    dda_home="/opt/dda",
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     model=[1, 2, 10],
     model_dimension=4,
     sampling_rate=(500, 1000),
@@ -62,7 +59,7 @@ result = run_analysis(
     "recording.edf",
     [1, 2, 3, 4],
     ["ST", "SY"];
-    dda_home="/opt/dda",
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     model=[1, 2, 10],
     model_dimension=4,
     delays=[7, 10],
@@ -86,7 +83,7 @@ raw = run_analysis_structured(
     "recording.edf",
     [1, 2, 3],
     ["ST", "DE"];
-    dda_home="/opt/dda",
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
 )
 ```
 
@@ -104,7 +101,12 @@ Each wrapper also accepts an in-memory `channels × samples` matrix instead of a
 
 ```julia
 data = randn(3, 10_000)
-result = run_st(data; dda_home="/opt/dda", wl=200, ws=100)
+result = run_st(
+    data;
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    wl=200,
+    ws=100,
+)
 ```
 
 ## Important Parameter Notes
@@ -126,7 +128,7 @@ st = get_variant_by_abbrev("ST")
 println(st.name)
 println(st.output_suffix)
 
-path = find_binary(; dda_home="/opt/dda")
+path = find_binary("/opt/dda/bin/run_DDA_AsciiEdf")
 println(path)
 ```
 

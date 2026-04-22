@@ -10,7 +10,7 @@ using DelayDifferentialAnalysis
 result = run_st(
     "data.edf",
     [1, 2, 3];
-    dda_home="/opt/dda",
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     model=[1, 2, 10],
     sampling_rate=(500, 1000),
     wl=200,
@@ -23,13 +23,25 @@ println(result.coefficients |> size)  # (3, n_windows, 3)
 
 # Cross-Timeseries
 ```julia
-result = run_ct("data.edf", [1, 2, 3]; dda_home="/opt/dda", wl=200, ws=100)
+result = run_ct(
+    "data.edf",
+    [1, 2, 3];
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    wl=200,
+    ws=100,
+)
 println(n_pairs(result))  # 3 pairs for 3 channels
 ```
 
 # Dynamical Ergodicity
 ```julia
-result = run_de("data.edf", [1, 2, 3]; dda_home="/opt/dda", wl=200, ws=100)
+result = run_de(
+    "data.edf",
+    [1, 2, 3];
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    wl=200,
+    ws=100,
+)
 println(result.ergodicity |> length)
 ```
 
@@ -45,7 +57,7 @@ result = run_analysis(
     "data.edf",
     [1, 2, 3],
     ["ST"];
-    dda_home="/opt/dda",
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     window_length=200,
     window_step=100,
 )
@@ -58,7 +70,7 @@ include("Variants.jl")
 using .Variants
 export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
 export SHELL_COMMAND, SUPPORTED_PLATFORMS
-export BINARY_ENV_VAR, BINARY_HOME_ENV_VAR, DEFAULT_BINARY_PATHS
+export BINARY_ENV_VAR, DEFAULT_BINARY_PATHS
 export find_binary, require_binary
 export ChannelFormat, Individual, Pairs, DirectedPairs
 export OutputColumns, VariantMetadata

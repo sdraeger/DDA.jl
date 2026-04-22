@@ -244,7 +244,7 @@ end
 Run single-timeseries DDA directly on an EDF or ASCII file using 1-based channel indices.
 
 Important keywords:
-- `binary_path` or `dda_home`: resolve the DDA binary without relying on environment variables
+- `binary_path`: resolve the DDA binary without relying on environment variables
 - `model`: values passed to `-MODEL`, default `[1, 2, 10]`
 - `model_dimension`: DDA model dimension (`-dm`)
 - `out_fn`: optional `-OUT_FN` base; defaults to a temporary path for the call
@@ -260,7 +260,6 @@ function run_st(
     ws::Int=DDADefaults.WINDOW_STEP,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
-    dda_home::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
@@ -287,7 +286,6 @@ function run_st(
         sampling_rate=sampling_rate_value,
         out_fn=out_fn,
         binary_path=binary_path,
-        dda_home=dda_home,
     )
 
     haskey(raw, "ST") || error("No ST results found in DDA output")
@@ -325,7 +323,6 @@ function run_ct(
     ct_ws::Union{Int, Nothing}=nothing,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
-    dda_home::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
@@ -359,7 +356,6 @@ function run_ct(
             sampling_rate=sampling_rate_value,
             out_fn=out_fn,
             binary_path=binary_path,
-            dda_home=dda_home,
         )
 
         haskey(raw, "CT") || error("No CT results found in DDA output for channels $(pair_channels)")
@@ -400,7 +396,6 @@ function run_de(
     ct_wl::Union{Int, Nothing}=nothing,
     ct_ws::Union{Int, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
-    dda_home::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
@@ -428,7 +423,6 @@ function run_de(
         sampling_rate=sampling_rate_value,
         out_fn=out_fn,
         binary_path=binary_path,
-        dda_home=dda_home,
     )
 
     haskey(raw, "DE") || error("No DE results found in DDA output")
@@ -466,7 +460,6 @@ function run_st(
     ws::Int=DDADefaults.WINDOW_STEP,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
-    dda_home::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
@@ -487,7 +480,6 @@ function run_st(
             ws=ws,
             channel_labels=channel_labels,
             binary_path=binary_path,
-            dda_home=dda_home,
             out_fn=out_fn,
             model_dimension=model_dimension,
             dm=dm,
@@ -516,7 +508,6 @@ function run_ct(
     ct_ws::Union{Int, Nothing}=nothing,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
-    dda_home::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
@@ -539,7 +530,6 @@ function run_ct(
             ct_ws=ct_ws,
             channel_labels=channel_labels,
             binary_path=binary_path,
-            dda_home=dda_home,
             out_fn=out_fn,
             model_dimension=model_dimension,
             dm=dm,
@@ -567,7 +557,6 @@ function run_de(
     ct_wl::Union{Int, Nothing}=nothing,
     ct_ws::Union{Int, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
-    dda_home::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
@@ -589,7 +578,6 @@ function run_de(
             ct_wl=ct_wl,
             ct_ws=ct_ws,
             binary_path=binary_path,
-            dda_home=dda_home,
             out_fn=out_fn,
             model_dimension=model_dimension,
             dm=dm,

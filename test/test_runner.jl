@@ -161,7 +161,7 @@ using DelayDifferentialAnalysis
         @testset "Auto-discovery without binary" begin
             # This will fail if binary is not installed, which is expected in CI
             # We test that the function exists and throws appropriate error
-            withenv("DDA_BINARY_PATH" => nothing, "DDA_HOME" => nothing) do
+            withenv("DDA_BINARY_PATH" => nothing) do
                 # Only test if binary is definitely not installed
                 if find_binary() === nothing
                     @test_throws ErrorException DDARunner()
@@ -169,18 +169,16 @@ using DelayDifferentialAnalysis
             end
         end
 
-        @testset "Explicit dda_home resolves binary" begin
-            temp_home = mktempdir()
-            fake_bin_dir = joinpath(temp_home, "bin")
-            mkpath(fake_bin_dir)
-            fake_binary = joinpath(fake_bin_dir, BINARY_NAME)
+        @testset "Explicit binary_path resolves binary" begin
+            temp_dir = mktempdir()
+            fake_binary = joinpath(temp_dir, BINARY_NAME)
             touch(fake_binary)
 
             try
-                runner = DDARunner(; dda_home=temp_home)
+                runner = DDARunner(; binary_path=fake_binary)
                 @test runner.binary_path == fake_binary
             finally
-                rm(temp_home; recursive=true, force=true)
+                rm(temp_dir; recursive=true, force=true)
             end
         end
     end
