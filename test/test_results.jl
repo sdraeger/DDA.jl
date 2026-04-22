@@ -20,6 +20,8 @@ using DelayDifferentialAnalysis
         @test r.params["wl"] == 100
         @test size(r.coefficients) == (3, 5, 3)
         @test size(r.errors) == (3, 5)
+        @test r.T == Float64.(ws)
+        @test r.t == Float64.(ws)
     end
 
     @testset "CTResult construction and accessors" begin
@@ -37,6 +39,8 @@ using DelayDifferentialAnalysis
         @test n_windows(r) == 10
         @test n_coeffs(r) == 3
         @test r.pair_labels == pair_labels
+        @test r.T == Float64.(ws)
+        @test r.t == Float64.(ws)
     end
 
     @testset "DEResult construction and accessors" begin
@@ -51,6 +55,8 @@ using DelayDifferentialAnalysis
         @test n_windows(r) == 20
         @test r.ergodicity == erg
         @test length(r.window_starts) == 20
+        @test r.T == Float64.(ws)
+        @test r.t == Float64.(ws)
     end
 
     @testset "STResult single-channel edge case" begin

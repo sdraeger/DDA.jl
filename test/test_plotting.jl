@@ -4,7 +4,7 @@ using DelayDifferentialAnalysis
 @testset "Plotting" begin
     # Plotting tests are smoke tests that only run if Plots.jl is available
     plots_available = try
-        @eval import Plots
+        DelayDifferentialAnalysis.Plotting._ensure_plots()
         true
     catch
         false

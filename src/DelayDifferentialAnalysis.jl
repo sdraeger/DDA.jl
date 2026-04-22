@@ -11,14 +11,15 @@ result = run_st(
     "data.edf",
     [1, 2, 3];
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    model=[1, 2, 10],
-    sampling_rate=(500, 1000),
+    derivative_points=3,
     wl=200,
     ws=100,
 )
 println(n_channels(result))           # 3
 println(n_windows(result))            # depends on data length
 println(result.coefficients |> size)  # (3, n_windows, 3)
+println(result.T[1])                  # raw first output column
+println(result.t[1])                  # derived time axis
 ```
 
 # Cross-Timeseries
@@ -58,6 +59,7 @@ result = run_analysis(
     [1, 2, 3],
     ["ST"];
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    derivative_points=3,
     window_length=200,
     window_step=100,
 )

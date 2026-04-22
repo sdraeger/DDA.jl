@@ -12,6 +12,8 @@ Single Timeseries analysis result.
 # Fields
 - `coefficients::Array{Float64,3}`: Shape `(n_channels, n_windows, n_coeffs)`.
 - `errors::Matrix{Float64}`: Shape `(n_channels, n_windows)`.
+- `T::Vector{Float64}`: Raw first column from the DDA output file.
+- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / max(sampling_rate)` when `sampling_rate` is provided, otherwise unscaled.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `channel_labels::Vector{String}`: Label per channel.
@@ -20,6 +22,8 @@ Single Timeseries analysis result.
 struct STResult
     coefficients::Array{Float64,3}
     errors::Matrix{Float64}
+    T::Vector{Float64}
+    t::Vector{Float64}
     window_starts::Vector{Int64}
     window_ends::Vector{Int64}
     channel_labels::Vector{String}
@@ -34,6 +38,8 @@ Cross-Timeseries analysis result.
 # Fields
 - `coefficients::Array{Float64,3}`: Shape `(n_pairs, n_windows, n_coeffs)`.
 - `errors::Matrix{Float64}`: Shape `(n_pairs, n_windows)`.
+- `T::Vector{Float64}`: Raw first column from the DDA output file.
+- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / max(sampling_rate)` when `sampling_rate` is provided, otherwise unscaled.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `pair_labels::Vector{String}`: Label per channel pair.
@@ -42,6 +48,8 @@ Cross-Timeseries analysis result.
 struct CTResult
     coefficients::Array{Float64,3}
     errors::Matrix{Float64}
+    T::Vector{Float64}
+    t::Vector{Float64}
     window_starts::Vector{Int64}
     window_ends::Vector{Int64}
     pair_labels::Vector{String}
@@ -55,15 +63,81 @@ Dynamical Ergodicity analysis result.
 
 # Fields
 - `ergodicity::Vector{Float64}`: Ergodicity measure per window.
+- `T::Vector{Float64}`: Raw first column from the DDA output file.
+- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / max(sampling_rate)` when `sampling_rate` is provided, otherwise unscaled.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `params::Dict{String,Any}`: Analysis parameters used.
 """
 struct DEResult
     ergodicity::Vector{Float64}
+    T::Vector{Float64}
+    t::Vector{Float64}
     window_starts::Vector{Int64}
     window_ends::Vector{Int64}
     params::Dict{String,Any}
+end
+
+function STResult(
+    coefficients::Array{Float64,3},
+    errors::Matrix{Float64},
+    window_starts::Vector{<:Integer},
+    window_ends::Vector{<:Integer},
+    channel_labels::Vector{String},
+    params::Dict{String,Any},
+)
+    raw_T = Float64.(window_starts)
+    derived_t = Float64.(window_starts)
+    return STResult(
+        coefficients,
+        errors,
+        raw_T,
+        derived_t,
+        Int64.(window_starts),
+        Int64.(window_ends),
+        channel_labels,
+        params,
+    )
+end
+
+function CTResult(
+    coefficients::Array{Float64,3},
+    errors::Matrix{Float64},
+    window_starts::Vector{<:Integer},
+    window_ends::Vector{<:Integer},
+    pair_labels::Vector{String},
+    params::Dict{String,Any},
+)
+    raw_T = Float64.(window_starts)
+    derived_t = Float64.(window_starts)
+    return CTResult(
+        coefficients,
+        errors,
+        raw_T,
+        derived_t,
+        Int64.(window_starts),
+        Int64.(window_ends),
+        pair_labels,
+        params,
+    )
+end
+
+function DEResult(
+    ergodicity::Vector{Float64},
+    window_starts::Vector{<:Integer},
+    window_ends::Vector{<:Integer},
+    params::Dict{String,Any},
+)
+    raw_T = Float64.(window_starts)
+    derived_t = Float64.(window_starts)
+    return DEResult(
+        ergodicity,
+        raw_T,
+        derived_t,
+        Int64.(window_starts),
+        Int64.(window_ends),
+        params,
+    )
 end
 
 # ---------------------------------------------------------------------------
@@ -134,6 +208,8 @@ function _to_dataframe_st(r::STResult)
 
     rows = nch * nw
     col_channel = Vector{String}(undef, rows)
+    col_T = Vector{Float64}(undef, rows)
+    col_t = Vector{Float64}(undef, rows)
     col_wstart = Vector{Int64}(undef, rows)
     col_wend = Vector{Int64}(undef, rows)
     coeff_cols = [Vector{Float64}(undef, rows) for _ in 1:nc]
@@ -143,6 +219,8 @@ function _to_dataframe_st(r::STResult)
     for ch in 1:nch, w in 1:nw
         idx += 1
         col_channel[idx] = r.channel_labels[ch]
+        col_T[idx] = r.T[w]
+        col_t[idx] = r.t[w]
         col_wstart[idx] = r.window_starts[w]
         col_wend[idx] = r.window_ends[w]
         for c in 1:nc
@@ -152,6 +230,8 @@ function _to_dataframe_st(r::STResult)
     end
 
     pairs = [Symbol("channel") => col_channel,
+             Symbol("T") => col_T,
+             Symbol("t") => col_t,
              Symbol("window_start") => col_wstart,
              Symbol("window_end") => col_wend]
     for c in 1:nc
@@ -180,6 +260,8 @@ function _to_dataframe_ct(r::CTResult)
 
     rows = np * nw
     col_pair = Vector{String}(undef, rows)
+    col_T = Vector{Float64}(undef, rows)
+    col_t = Vector{Float64}(undef, rows)
     col_wstart = Vector{Int64}(undef, rows)
     col_wend = Vector{Int64}(undef, rows)
     coeff_cols = [Vector{Float64}(undef, rows) for _ in 1:nc]
@@ -189,6 +271,8 @@ function _to_dataframe_ct(r::CTResult)
     for p in 1:np, w in 1:nw
         idx += 1
         col_pair[idx] = r.pair_labels[p]
+        col_T[idx] = r.T[w]
+        col_t[idx] = r.t[w]
         col_wstart[idx] = r.window_starts[w]
         col_wend[idx] = r.window_ends[w]
         for c in 1:nc
@@ -198,6 +282,8 @@ function _to_dataframe_ct(r::CTResult)
     end
 
     pairs = [Symbol("pair") => col_pair,
+             Symbol("T") => col_T,
+             Symbol("t") => col_t,
              Symbol("window_start") => col_wstart,
              Symbol("window_end") => col_wend]
     for c in 1:nc
@@ -222,12 +308,16 @@ function _to_dataframe_de(r::DEResult)
     DF = @eval DataFrames
     nw = n_windows(r)
 
+    col_T = r.T
+    col_t = r.t
     col_wstart = r.window_starts
     col_wend = r.window_ends
     col_erg = r.ergodicity
 
     return Base.invokelatest(
         DF.DataFrame,
+        Symbol("T") => col_T,
+        Symbol("t") => col_t,
         Symbol("window_start") => col_wstart,
         Symbol("window_end") => col_wend,
         Symbol("ergodicity") => col_erg,

@@ -66,6 +66,7 @@ end
             @test request.delay_params.delays == collect(DEFAULT_DELAYS)
             @test request.model_terms == DelayDifferentialAnalysis.DDADefaults.MODEL_PARAMS
             @test request.sampling_rate == DelayDifferentialAnalysis.DDADefaults.SAMPLING_RATE
+            @test request.tm == maximum(collect(DEFAULT_DELAYS))
         end
 
         @testset "With custom parameters" begin
@@ -79,13 +80,14 @@ end
                 ct_window_step=2,
                 delays=[1, 2, 3, 4, 5],
                 model=[4, 7, 9],
-                model_dimension=6,
+                derivative_points=6,
                 order=5,
                 nr_tau=3,
                 time_range=(0.0, 10000.0),
                 ct_pairs=[(1, 2)],
                 cd_pairs=[(1, 2), (2, 1)],
                 sampling_rate=(500, 1000),
+                TM=11,
                 out_fn="/tmp/custom_dda_output"
             )
 
@@ -94,7 +96,7 @@ end
             @test request.window_params.ct_window_length == 4
             @test request.window_params.ct_window_step == 2
             @test request.delay_params.delays == [1, 2, 3, 4, 5]
-            @test request.model_params.dm == 6
+            @test request.model_params.derivative_points == 6
             @test request.model_params.order == 5
             @test request.model_params.nr_tau == 3
             @test request.model_terms == [4, 7, 9]
@@ -103,13 +105,14 @@ end
             @test request.ct_channel_pairs == [(1, 2)]
             @test request.cd_channel_pairs == [(1, 2), (2, 1)]
             @test request.sampling_rate == (500, 1000)
+            @test request.tm == 11
             @test request.out_fn == "/tmp/custom_dda_output"
         end
 
         @testset "Default model parameters" begin
             request = DDARequest("test.edf", [1], ["ST"])
 
-            @test request.model_params.dm == 4
+            @test request.model_params.derivative_points == 3
             @test request.model_params.order == 4
             @test request.model_params.nr_tau == 2
         end
@@ -117,6 +120,26 @@ end
         @testset "Scalar sampling rate is normalized to a pair" begin
             request = DDARequest("test.edf", [1], ["ST"]; sampling_rate=2048)
             @test request.sampling_rate == (1024, 2048)
+        end
+
+        @testset "Custom model requires explicit derivative config and order" begin
+            @test_throws ErrorException DDARequest(
+                "test.edf",
+                [1],
+                ["ST"];
+                model=[1, 2, 10],
+            )
+
+            request = DDARequest(
+                "test.edf",
+                [1],
+                ["ST"];
+                model=[1, 2, 10],
+                derivative_points=5,
+                order=3,
+            )
+            @test request.model_params.derivative_points == 5
+            @test request.model_params.order == 3
         end
     end
 
@@ -287,18 +310,36 @@ end
 
     @testset "VariantResultData" begin
         q_matrix = [1.0 2.0 3.0; 4.0 5.0 6.0]
+        coefficients = reshape(collect(1.0:12.0), 2, 3, 2)
+        errors = [0.1 0.2 0.3; 0.4 0.5 0.6]
+        T = [0.0, 100.0, 200.0]
+        t = [0.014, 0.114, 0.214]
+        window_starts = [0, 64, 128]
+        window_ends = [128, 192, 256]
         labels = ["Channel 1", "Channel 2"]
 
         result = VariantResultData(
             "ST",
             "Single Timeseries",
             q_matrix,
+            coefficients,
+            errors,
+            T,
+            t,
+            window_starts,
+            window_ends,
             labels
         )
 
         @test result.variant_id == "ST"
         @test result.variant_name == "Single Timeseries"
         @test size(result.q_matrix) == (2, 3)
+        @test size(result.coefficients) == (2, 3, 2)
+        @test size(result.errors) == (2, 3)
+        @test result.T == T
+        @test result.t == t
+        @test result.window_starts == window_starts
+        @test result.window_ends == window_ends
         @test result.channel_labels == labels
     end
 
@@ -422,6 +463,8 @@ end
                 [1, 3, 5],
                 ["ST"];
                 model=[1, 2, 10],
+                derivative_points=5,
+                order=4,
                 out_fn="/tmp/dda_custom_output",
                 sampling_rate=(500, 1000),
             )
@@ -444,9 +487,80 @@ end
             @test argv[findfirst(==("-OUT_FN"), argv) + 1] == "/tmp/dda_custom_output"
             @test argv[(findfirst(==("-CH_list"), argv) + 1):(findfirst(==("-SELECT"), argv) - 1)] == ["1", "3", "5"]
             @test argv[(findfirst(==("-MODEL"), argv) + 1):(findfirst(==("-TAU"), argv) - 1)] == ["1", "2", "10"]
+            @test argv[(findfirst(==("-WLms"), argv) + 1)] == "200"
+            @test argv[(findfirst(==("-WSms"), argv) + 1)] == "100"
+            @test argv[(findfirst(==("-dm"), argv) + 1)] == "5"
             @test argv[(findfirst(==("-SR"), argv) + 1):(findfirst(==("-SR"), argv) + 2)] == ["500", "1000"]
         finally
             rm(fake_binary, force=true)
         end
+    end
+
+    @testset "Sampling rate (N, N) is metadata-only" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            request = DDARequest(
+                "test.edf",
+                [1],
+                ["ST"];
+                sampling_rate=(500, 500),
+            )
+            cmd = DelayDifferentialAnalysis.Runner.build_command(runner, request, "/tmp/out")
+            argv = collect(cmd)
+            @test !("-SR" in argv)
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "Raw T, derived t, and normalized window bounds are kept separate" begin
+        request = DDARequest(
+            "test.edf",
+            [1],
+            ["ST"];
+            window_length=128,
+            window_step=64,
+            delays=[7, 10],
+            derivative_points=3,
+            sampling_rate=(500, 500),
+            TM=12,
+        )
+
+        T = DelayDifferentialAnalysis.Runner._extract_raw_T([
+            StructuredChannelData(
+                1,
+                [
+                    StructuredTimepoint(0.0, 5000.0, [1.0, 2.0, 3.0], 0.1),
+                    StructuredTimepoint(200.0, 5200.0, [4.0, 5.0, 6.0], 0.2),
+                ],
+            ),
+        ])
+        t = DelayDifferentialAnalysis.Runner._compute_t_axis(
+            T,
+            request.model_params.derivative_points,
+            request.tm,
+            request.sampling_rate,
+        )
+        window_starts, window_ends = DelayDifferentialAnalysis.Runner._normalized_window_bounds(
+            request,
+            "ST",
+        )
+
+        @test T == [0.0, 200.0]
+        @test t == [0.032, 0.432]
+        @test window_starts == Int64[]
+        @test window_ends == Int64[]
+
+        window_starts, window_ends = DelayDifferentialAnalysis.Runner._normalized_window_bounds(
+            request,
+            "ST",
+            2,
+        )
+
+        @test window_starts == [0, 64]
+        @test window_ends == [128, 192]
     end
 end

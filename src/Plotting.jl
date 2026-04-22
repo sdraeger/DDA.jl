@@ -42,8 +42,8 @@ Requires `Plots.jl` to be installed.
 - `result::Union{STResult, CTResult}`: Analysis result.
 - `coeff_indices`: Which coefficients to plot (1-based). Default: all.
 - `channels`: Which channels to plot (1-based). Default: all.
-- `use_time::Bool=false`: Use time axis (requires `sfreq`).
-- `sfreq`: Sampling frequency for time conversion.
+- `use_time::Bool=false`: Use `result.t` when available. Falls back to `window_starts / sfreq`.
+- `sfreq`: Sampling frequency for fallback time conversion.
 - `figsize`: Figure size as (width, height).
 """
 function plot_coefficients(
@@ -74,7 +74,10 @@ function _plot_coefficients_impl(
 
     labels = result isa STResult ? result.channel_labels : result.pair_labels
 
-    if use_time && sfreq !== nothing
+    if use_time && !isempty(result.t)
+        x = result.t
+        xlabel = "t"
+    elseif use_time && sfreq !== nothing
         x = result.window_starts ./ sfreq
         xlabel = "Time (s)"
     else
@@ -132,7 +135,10 @@ function _plot_errors_impl(
     ch_idx = something(channels, collect(1:nc))
     labels = result isa STResult ? result.channel_labels : result.pair_labels
 
-    if use_time && sfreq !== nothing
+    if use_time && !isempty(result.t)
+        x = result.t
+        xlabel = "t"
+    elseif use_time && sfreq !== nothing
         x = result.window_starts ./ sfreq
         xlabel = "Time (s)"
     else
@@ -184,7 +190,10 @@ function _plot_heatmap_impl(
     data_2d = result.coefficients[:, :, coeff_index]
     labels = result isa STResult ? result.channel_labels : result.pair_labels
 
-    if use_time && sfreq !== nothing
+    if use_time && !isempty(result.t)
+        x = result.t
+        xlabel = "t"
+    elseif use_time && sfreq !== nothing
         x = result.window_starts ./ sfreq
         xlabel = "Time (s)"
     else
@@ -230,7 +239,10 @@ function _plot_ergodicity_impl(
 )
     P = @eval Plots
 
-    if use_time && sfreq !== nothing
+    if use_time && !isempty(result.t)
+        x = result.t
+        xlabel = "t"
+    elseif use_time && sfreq !== nothing
         x = result.window_starts ./ sfreq
         xlabel = "Time (s)"
     else

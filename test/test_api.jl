@@ -107,6 +107,68 @@ using DelayDifferentialAnalysis
         end
     end
 
+    @testset "custom model requires explicit derivative config and order" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            @test_throws ErrorException run_st(
+                randn(2, 1024);
+                binary_path=fake_binary,
+                model=[1, 2, 10],
+            )
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "raw T, derived t, and full coefficients are preserved" begin
+        channels = [
+            StructuredChannelData(
+                1,
+                [
+                    StructuredTimepoint(10.0, 138.0, [1.0, 2.0, 3.0], 0.1),
+                    StructuredTimepoint(110.0, 238.0, [4.0, 5.0, 6.0], 0.2),
+                ],
+            ),
+            StructuredChannelData(
+                2,
+                [
+                    StructuredTimepoint(10.0, 138.0, [7.0, 8.0, 9.0], 0.3),
+                    StructuredTimepoint(110.0, 238.0, [10.0, 11.0, 12.0], 0.4),
+                ],
+            ),
+        ]
+
+        result = DelayDifferentialAnalysis.API._st_from_raw(
+            channels,
+            ["ch1", "ch2"];
+            sfreq=1.0,
+            delays=[7, 10],
+            model=[1, 2, 10],
+            wl=128,
+            ws=100,
+            derivative_points=3,
+            TM=12,
+            order=4,
+            nr_tau=2,
+            sampling_rate=(500, 500),
+            out_fn=nothing,
+            selected_channels=[1, 2],
+        )
+
+        @test size(result.coefficients) == (2, 2, 3)
+        @test result.coefficients[1, 1, :] == [1.0, 2.0, 3.0]
+        @test result.coefficients[2, 2, :] == [10.0, 11.0, 12.0]
+        @test result.errors == [0.1 0.2; 0.3 0.4]
+        @test result.T == [10.0, 110.0]
+        @test result.t == [0.052, 0.252]
+        @test result.window_starts == [0, 100]
+        @test result.window_ends == [128, 228]
+        @test result.params["TM"] == 12
+        @test result.params["sampling_rate"] == (500, 500)
+    end
+
     @testset "matrix API smoke test with repo binary" begin
         if !isfile(repo_binary)
             @info "Skipping matrix API smoke test: repo binary not found"

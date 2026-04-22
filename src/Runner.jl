@@ -46,12 +46,16 @@ DelayParameters() = DelayParameters(collect(DEFAULT_DELAYS))
 
 """Model parameters for DDA."""
 struct ModelParameters
-    dm::Int
+    derivative_points::Int
     order::Int
     nr_tau::Int
 end
 
-ModelParameters() = ModelParameters(DDADefaults.MODEL_DIMENSION, DDADefaults.POLYNOMIAL_ORDER, DDADefaults.NUM_TAU)
+ModelParameters() = ModelParameters(
+    DDADefaults.DERIVATIVE_POINTS,
+    DDADefaults.POLYNOMIAL_ORDER,
+    DDADefaults.NUM_TAU,
+)
 
 """
     DDARequest
@@ -64,12 +68,13 @@ DDA analysis request parameters.
 - `variants`: Variant abbreviations (e.g., ["ST", "SY"])
 - `window_params`: Window length and step
 - `delay_params`: Delay (tau) values
-- `model_params`: Model parameters (`dm`, `order`, `nr_tau`)
+- `model_params`: Model parameters (`derivative_points`, `order`, `nr_tau`)
 - `model_terms`: Model term indices passed to `-MODEL`
 - `time_range`: Optional time range in samples
 - `ct_channel_pairs`: Channel pairs for CT (1-based)
 - `cd_channel_pairs`: Directed pairs for CD (1-based)
 - `sampling_rate`: Optional `-SR` pair `(low, high)`
+- `tm`: Optional `TM` value used only to compute the derived `t` axis
 - `out_fn`: Optional output base passed to `-OUT_FN`
 """
 struct DDARequest
@@ -84,6 +89,7 @@ struct DDARequest
     ct_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     cd_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     sampling_rate::Union{Tuple{Int, Int}, Nothing}
+    tm::Int
     out_fn::Union{String, Nothing}
 end
 
@@ -110,16 +116,41 @@ function _normalize_pairs(
     return normalized
 end
 
-function _resolve_model_dimension(
+function _resolve_derivative_points(
     model_dimension::Union{Int, Nothing},
+    derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
 )::Int
-    if model_dimension !== nothing && dm !== nothing && model_dimension != dm
-        error("`model_dimension` and `dm` disagree: $model_dimension != $dm")
+    provided = filter(!isnothing, Any[model_dimension, derivative_points, dm])
+    if !isempty(provided)
+        reference = Int(first(provided))
+        for value in provided[2:end]
+            Int(value) == reference || error(
+                "`model_dimension`, `derivative_points`, and `dm` disagree",
+            )
+        end
+        reference > 0 || error("Derivative points must be positive")
+        return reference
     end
-    value = something(model_dimension, dm, DDADefaults.MODEL_DIMENSION)
-    value > 0 || error("Model dimension must be positive")
-    return value
+    return DDADefaults.DERIVATIVE_POINTS
+end
+
+function _validate_custom_model_request(
+    model::Union{AbstractVector{<:Integer}, Nothing},
+    model_encoding::Union{AbstractVector{<:Integer}, Nothing},
+    model_dimension::Union{Int, Nothing},
+    derivative_points::Union{Int, Nothing},
+    dm::Union{Int, Nothing},
+    order::Union{Int, Nothing},
+)
+    explicit_model = model !== nothing || model_encoding !== nothing
+    has_derivative_points = !isnothing(model_dimension) || !isnothing(derivative_points) || !isnothing(dm)
+    if explicit_model && (!has_derivative_points || isnothing(order))
+        error(
+            "Passing `model` requires explicit `model_dimension` or `derivative_points`, and `order`",
+        )
+    end
+    return nothing
 end
 
 function _normalize_sampling_rate(
@@ -147,6 +178,32 @@ function _normalize_sampling_rate(
     high > 0 || error("Sampling rate upper bound must be positive")
     low <= high || error("Sampling rate lower bound must be <= upper bound")
     return (low, high)
+end
+
+function _resolve_tm(
+    delays::AbstractVector{<:Integer},
+    TM::Union{Int, Nothing},
+)::Int
+    if TM !== nothing
+        TM >= 0 || error("TM must be non-negative")
+        return TM
+    end
+    isempty(delays) && return 0
+    return maximum(Int[delays...])
+end
+
+function _sampling_rate_scale(
+    sampling_rate::Union{Tuple{Int, Int}, Nothing},
+)::Float64
+    sampling_rate === nothing && return 1.0
+    return Float64(max(sampling_rate[1], sampling_rate[2]))
+end
+
+function _should_pass_sampling_rate(
+    sampling_rate::Union{Tuple{Int, Int}, Nothing},
+)::Bool
+    sampling_rate === nothing && return false
+    return sampling_rate[1] != sampling_rate[2]
 end
 
 function _fallback_channel_label(channel::Integer, fallback_prefix::String)::String
@@ -265,16 +322,18 @@ Create a DDA analysis request.
 - `ct_window_length`: CT-specific window length
 - `ct_window_step`: CT-specific window step
 - `delays`: Delay (tau) values, default `$(DEFAULT_DELAYS)`
-- `model::Vector{Int}=$(DDADefaults.MODEL_PARAMS)`: Model term indices passed to `-MODEL`
+- `model`: Optional custom model term indices passed to `-MODEL`
 - `model_encoding`: Backward-compatible alias for `model`
-- `model_dimension::Int=$(DDADefaults.MODEL_DIMENSION)`: Model dimension (`-dm`)
-- `dm`: Backward-compatible alias for `model_dimension`
-- `order::Int=$(DDADefaults.POLYNOMIAL_ORDER)`: Polynomial order
+- `model_dimension`: Compatibility alias for `derivative_points`
+- `derivative_points::Int=$(DDADefaults.DERIVATIVE_POINTS)`: Value passed to binary `-dm`
+- `dm`: Legacy alias for `derivative_points`
+- `order::Int=$(DDADefaults.POLYNOMIAL_ORDER)`: Polynomial order. Required when passing a custom `model`
 - `nr_tau::Int=$(DDADefaults.NUM_TAU)`: Number of tau values
 - `time_range`: Optional `(start, stop)` in samples
 - `ct_pairs`: CT channel pairs (1-based)
 - `cd_pairs`: CD directed pairs (1-based)
 - `sampling_rate`: Optional `-SR` pair. Defaults to `$(DDADefaults.SAMPLING_RATE)`
+- `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
 - `out_fn`: Optional output base passed to `-OUT_FN`
 """
 function DDARequest(
@@ -286,11 +345,12 @@ function DDARequest(
     ct_window_length::Union{Int, Nothing}=nothing,
     ct_window_step::Union{Int, Nothing}=nothing,
     delays::Vector{Int}=collect(DEFAULT_DELAYS),
-    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model::Union{Vector{Int}, Nothing}=nothing,
     model_encoding::Union{Vector{Int}, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
+    derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
-    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     time_range::Union{Tuple{Real, Real}, Nothing}=nothing,
     ct_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
@@ -301,14 +361,27 @@ function DDARequest(
         Tuple{Real, Real},
         AbstractVector{<:Real},
     }=DDADefaults.SAMPLING_RATE,
+    TM::Union{Int, Nothing}=nothing,
     out_fn::Union{AbstractString, Nothing}=nothing,
 )
     normalized_channels = _normalize_channels(channels)
     normalized_variants = String[variants...]
+    _validate_custom_model_request(
+        model,
+        model_encoding,
+        model_dimension,
+        derivative_points,
+        dm,
+        order,
+    )
     wp = WindowParameters(window_length, window_step, ct_window_length, ct_window_step)
     dp = DelayParameters(Int[delays...])
-    mp = ModelParameters(_resolve_model_dimension(model_dimension, dm), order, nr_tau)
-    terms = Int[something(model_encoding, model)...]
+    mp = ModelParameters(
+        _resolve_derivative_points(model_dimension, derivative_points, dm),
+        something(order, DDADefaults.POLYNOMIAL_ORDER),
+        nr_tau,
+    )
+    terms = Int[something(model_encoding, model, copy(DDADefaults.MODEL_PARAMS))...]
     tr = time_range === nothing ? nothing : TimeRange(Float64(time_range[1]), Float64(time_range[2]))
     normalized_out_fn = out_fn === nothing ? nothing : expanduser(String(out_fn))
     return DDARequest(
@@ -323,6 +396,7 @@ function DDARequest(
         _normalize_pairs(ct_pairs),
         _normalize_pairs(cd_pairs),
         _normalize_sampling_rate(sampling_rate),
+        _resolve_tm(dp.delays, TM),
         normalized_out_fn,
     )
 end
@@ -333,8 +407,8 @@ end
 
 """A single timepoint's parsed data for one channel."""
 struct StructuredTimepoint
-    window_start::Int64
-    window_end::Int64
+    window_start::Float64
+    window_end::Float64
     coefficients::Vector{Float64}
     error::Float64
 end
@@ -354,6 +428,12 @@ struct VariantResultData
     variant_id::String
     variant_name::String
     q_matrix::Matrix{Float64}
+    coefficients::Array{Float64,3}
+    errors::Matrix{Float64}
+    T::Vector{Float64}
+    t::Vector{Float64}
+    window_starts::Vector{Int64}
+    window_ends::Vector{Int64}
     channel_labels::Union{Vector{String}, Nothing}
 end
 
@@ -606,12 +686,12 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
 
     # Window parameters
     wp = request.window_params
-    push!(args, "-WL", string(wp.window_length))
-    push!(args, "-WS", string(wp.window_step))
+    push!(args, "-WLms", string(wp.window_length))
+    push!(args, "-WSms", string(wp.window_step))
 
     # Model parameters
     mp = request.model_params
-    push!(args, "-dm", string(mp.dm))
+    push!(args, "-dm", string(mp.derivative_points))
     push!(args, "-order", string(mp.order))
     push!(args, "-nr_tau", string(mp.nr_tau))
 
@@ -634,8 +714,8 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
         push!(args, "-StartEnd", string(Int(tr.start)), string(Int(tr.stop)))
     end
 
-    # Sampling rate pair passed directly to -SR.
-    if request.sampling_rate !== nothing
+    # Sampling rate pair passed directly to -SR unless it is metadata-only `(N, N)`.
+    if _should_pass_sampling_rate(request.sampling_rate)
         push!(args, "-SR", string(request.sampling_rate[1]), string(request.sampling_rate[2]))
     end
 
@@ -687,8 +767,8 @@ function parse_output_file_structured(filepath::String, stride::Integer)::Vector
     for ch_idx in 1:num_channels
         timepoints = StructuredTimepoint[]
         for row in data_rows
-            win_start = Int64(row[1])
-            win_end = Int64(row[2])
+            win_start = row[1]
+            win_end = row[2]
             start_col = 3 + (ch_idx - 1) * stride
             end_col = start_col + stride - 1
             channel_values = row[start_col:end_col]
@@ -709,6 +789,71 @@ function parse_output_file_structured(filepath::String, stride::Integer)::Vector
     end
 
     return channels
+end
+
+function _variant_window_spec(request::DDARequest, variant_abbrev::AbstractString)::Tuple{Int, Int}
+    wp = request.window_params
+    variant = get_variant_by_abbrev(String(variant_abbrev))
+    if variant !== nothing && requires_ct_params(variant)
+        return (
+            something(wp.ct_window_length, wp.window_length),
+            something(wp.ct_window_step, wp.window_step),
+        )
+    end
+    return (wp.window_length, wp.window_step)
+end
+
+function _normalized_window_bounds(
+    request::DDARequest,
+    variant_abbrev::AbstractString,
+)::Tuple{Vector{Int64}, Vector{Int64}}
+    return _normalized_window_bounds(
+        request,
+        variant_abbrev,
+        0,
+    )
+end
+
+function _normalized_window_bounds(
+    request::DDARequest,
+    variant_abbrev::AbstractString,
+    n_windows::Integer,
+)::Tuple{Vector{Int64}, Vector{Int64}}
+    n_windows < 0 && error("n_windows must be non-negative")
+    n_windows == 0 && return (Int64[], Int64[])
+
+    (window_length, window_step) = _variant_window_spec(request, variant_abbrev)
+    first_start = request.time_range === nothing ? 0 : Int(floor(request.time_range.start))
+    window_starts = Vector{Int64}(undef, Int(n_windows))
+    window_ends = Vector{Int64}(undef, Int(n_windows))
+
+    for window_idx in 1:Int(n_windows)
+        window_start = Int64(first_start + (window_idx - 1) * window_step)
+        window_end = Int64(window_start + window_length)
+        window_starts[window_idx] = window_start
+        window_ends[window_idx] = window_end
+    end
+
+    return window_starts, window_ends
+end
+
+function _extract_raw_T(
+    channels::Vector{StructuredChannelData},
+)::Vector{Float64}
+    isempty(channels) && return Float64[]
+    return [tp.window_start for tp in channels[1].timepoints]
+end
+
+function _compute_t_axis(
+    T::AbstractVector{<:Real},
+    derivative_points::Integer,
+    tm::Integer,
+    sampling_rate::Union{Tuple{Int, Int}, Nothing},
+)::Vector{Float64}
+    denominator = _sampling_rate_scale(sampling_rate)
+    return [
+        (Float64(raw_T) + 1 + Int(derivative_points) + Int(tm)) / denominator for raw_T in T
+    ]
 end
 
 # =============================================================================
@@ -754,6 +899,84 @@ function parse_output_file(filepath::String, stride::Integer)::Matrix{Float64}
     return q_matrix
 end
 
+function _channel_labels_for_variant(
+    variant::VariantMetadata,
+    base_labels::Vector{String},
+)::Vector{String}
+    if variant.channel_format == Individual
+        return copy(base_labels)
+    elseif variant.channel_format == Pairs
+        labels = String[]
+        for i in 1:length(base_labels), j in (i + 1):length(base_labels)
+            push!(labels, "$(base_labels[i])-$(base_labels[j])")
+        end
+        return labels
+    elseif variant.channel_format == DirectedPairs
+        labels = String[]
+        for i in 1:length(base_labels), j in 1:length(base_labels)
+            i == j && continue
+            push!(labels, "$(base_labels[i])->$(base_labels[j])")
+        end
+        return labels
+    end
+    return copy(base_labels)
+end
+
+function _pack_variant_result(
+    variant_abbrev::String,
+    variant::VariantMetadata,
+    channels::Vector{StructuredChannelData},
+    request::DDARequest,
+    channel_labels::Union{Vector{String}, Nothing},
+)::VariantResultData
+    n_entities = length(channels)
+    n_windows = isempty(channels) ? 0 : length(channels[1].timepoints)
+    n_coeffs = n_windows == 0 ? 0 : length(channels[1].timepoints[1].coefficients)
+
+    coefficients = Array{Float64,3}(undef, n_entities, n_windows, n_coeffs)
+    errors = Matrix{Float64}(undef, n_entities, n_windows)
+
+    for (entity_idx, channel_data) in enumerate(channels)
+        for (window_idx, tp) in enumerate(channel_data.timepoints)
+            for (coeff_idx, coeff) in enumerate(tp.coefficients)
+                coefficients[entity_idx, window_idx, coeff_idx] = coeff
+            end
+            errors[entity_idx, window_idx] = tp.error
+        end
+    end
+
+    T = _extract_raw_T(channels)
+    t = _compute_t_axis(
+        T,
+        request.model_params.derivative_points,
+        request.tm,
+        request.sampling_rate,
+    )
+    window_starts, window_ends = _normalized_window_bounds(request, variant_abbrev, n_windows)
+    q_matrix = n_coeffs > 0 ? coefficients[:, :, 1] : copy(errors)
+
+    resolved_labels = channel_labels === nothing ? nothing : begin
+        labels = copy(channel_labels)
+        if length(labels) > n_entities
+            labels = labels[1:n_entities]
+        end
+        labels
+    end
+
+    return VariantResultData(
+        variant_abbrev,
+        variant.name,
+        q_matrix,
+        coefficients,
+        errors,
+        T,
+        t,
+        window_starts,
+        window_ends,
+        resolved_labels,
+    )
+end
+
 function parse_results_legacy(request::DDARequest, output_base::String)::Vector{VariantResultData}
     results = VariantResultData[]
     base_labels = _resolve_requested_channel_labels(
@@ -769,15 +992,20 @@ function parse_results_legacy(request::DDARequest, output_base::String)::Vector{
         actual_file = _find_output_file(output_base, variant, variant_abbrev)
         actual_file === nothing && continue
 
-        q_matrix = parse_output_file(actual_file, variant.stride)
-        isempty(q_matrix) && continue
+        channels = parse_output_file_structured(actual_file, variant.stride)
+        isempty(channels) && continue
 
-        channel_labels = copy(base_labels)
-        if size(q_matrix, 1) < length(channel_labels)
-            channel_labels = channel_labels[1:size(q_matrix, 1)]
-        end
-
-        push!(results, VariantResultData(variant_abbrev, variant.name, q_matrix, channel_labels))
+        variant_labels = _channel_labels_for_variant(variant, base_labels)
+        push!(
+            results,
+            _pack_variant_result(
+                variant_abbrev,
+                variant,
+                channels,
+                request,
+                variant_labels,
+            ),
+        )
     end
     return results
 end

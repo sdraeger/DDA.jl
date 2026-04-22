@@ -67,13 +67,39 @@ function _pair_channel_sets(channels::Vector{Int})::Vector{Vector{Int}}
     return pairs
 end
 
+function _resolve_model_configuration(
+    model::Union{AbstractVector{<:Integer}, Nothing},
+    model_dimension::Union{Int, Nothing},
+    derivative_points::Union{Int, Nothing},
+    dm::Union{Int, Nothing},
+    order::Union{Int, Nothing},
+)::Tuple{Vector{Int}, Int, Int}
+    Runner._validate_custom_model_request(
+        model,
+        nothing,
+        model_dimension,
+        derivative_points,
+        dm,
+        order,
+    )
+    resolved_model = Int[something(model, copy(DDADefaults.MODEL_PARAMS))...]
+    resolved_derivative_points = Runner._resolve_derivative_points(
+        model_dimension,
+        derivative_points,
+        dm,
+    )
+    resolved_order = something(order, DDADefaults.POLYNOMIAL_ORDER)
+    return resolved_model, resolved_derivative_points, resolved_order
+end
+
 function _make_params(;
     sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
     wl::Int,
     ws::Int,
-    model_dimension::Int,
+    derivative_points::Int,
+    TM::Int,
     order::Int,
     nr_tau::Int,
     sampling_rate,
@@ -87,8 +113,10 @@ function _make_params(;
         "model" => Int[model...],
         "wl" => wl,
         "ws" => ws,
-        "model_dimension" => model_dimension,
-        "dm" => model_dimension,
+        "derivative_points" => derivative_points,
+        "model_dimension" => derivative_points,
+        "dm" => derivative_points,
+        "TM" => TM,
         "order" => order,
         "nr_tau" => nr_tau,
         "sampling_rate" => sampling_rate,
@@ -99,6 +127,46 @@ function _make_params(;
     return params
 end
 
+function _window_bounds(
+    n_windows::Int,
+    window_length::Int,
+    window_step::Int;
+    start_offset::Int=0,
+)::Tuple{Vector{Int64}, Vector{Int64}}
+    window_starts = Vector{Int64}(undef, n_windows)
+    window_ends = Vector{Int64}(undef, n_windows)
+
+    for window_idx in 1:n_windows
+        window_start = Int64(start_offset + (window_idx - 1) * window_step)
+        window_end = Int64(window_start + window_length)
+        window_starts[window_idx] = window_start
+        window_ends[window_idx] = window_end
+    end
+
+    return window_starts, window_ends
+end
+
+function _time_axes(
+    channels::Vector{StructuredChannelData},
+    derivative_points::Int,
+    TM::Int,
+    sampling_rate,
+    window_length::Int,
+    window_step::Int;
+    start_offset::Int=0,
+)::Tuple{Vector{Float64}, Vector{Float64}, Vector{Int64}, Vector{Int64}}
+    n_windows = isempty(channels) ? 0 : length(channels[1].timepoints)
+    T = Runner._extract_raw_T(channels)
+    t = Runner._compute_t_axis(T, derivative_points, TM, sampling_rate)
+    window_starts, window_ends = _window_bounds(
+        n_windows,
+        window_length,
+        window_step;
+        start_offset=start_offset,
+    )
+    return T, t, window_starts, window_ends
+end
+
 function _st_from_raw(
     channels::Vector{StructuredChannelData},
     labels::Vector{String};
@@ -107,7 +175,8 @@ function _st_from_raw(
     model::AbstractVector{<:Integer},
     wl::Int,
     ws::Int,
-    model_dimension::Int,
+    derivative_points::Int,
+    TM::Int,
     order::Int,
     nr_tau::Int,
     sampling_rate,
@@ -120,15 +189,17 @@ function _st_from_raw(
 
     coefficients = Array{Float64, 3}(undef, n_ch, n_win, n_coeff)
     errors = Matrix{Float64}(undef, n_ch, n_win)
-    win_starts = Vector{Int64}(undef, n_win)
-    win_ends = Vector{Int64}(undef, n_win)
+    T, t, win_starts, win_ends = _time_axes(
+        channels,
+        derivative_points,
+        TM,
+        sampling_rate,
+        wl,
+        ws,
+    )
 
     for (ci, ch_data) in enumerate(channels)
         for (wi, tp) in enumerate(ch_data.timepoints)
-            if ci == 1
-                win_starts[wi] = tp.window_start
-                win_ends[wi] = tp.window_end
-            end
             for (ki, coeff) in enumerate(tp.coefficients)
                 coefficients[ci, wi, ki] = coeff
             end
@@ -142,14 +213,15 @@ function _st_from_raw(
         model=model,
         wl=wl,
         ws=ws,
-        model_dimension=model_dimension,
+        derivative_points=derivative_points,
+        TM=TM,
         order=order,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate,
         channels=selected_channels,
         out_fn=out_fn,
     )
-    return STResult(coefficients, errors, win_starts, win_ends, labels, params)
+    return STResult(coefficients, errors, T, t, win_starts, win_ends, labels, params)
 end
 
 function _ct_from_raw(
@@ -160,7 +232,8 @@ function _ct_from_raw(
     model::AbstractVector{<:Integer},
     wl::Int,
     ws::Int,
-    model_dimension::Int,
+    derivative_points::Int,
+    TM::Int,
     order::Int,
     nr_tau::Int,
     sampling_rate,
@@ -173,15 +246,17 @@ function _ct_from_raw(
 
     coefficients = Array{Float64, 3}(undef, n_pairs, n_win, n_coeff)
     errors = Matrix{Float64}(undef, n_pairs, n_win)
-    win_starts = Vector{Int64}(undef, n_win)
-    win_ends = Vector{Int64}(undef, n_win)
+    T, t, win_starts, win_ends = _time_axes(
+        pairs,
+        derivative_points,
+        TM,
+        sampling_rate,
+        wl,
+        ws,
+    )
 
     for (pi, pair_data) in enumerate(pairs)
         for (wi, tp) in enumerate(pair_data.timepoints)
-            if pi == 1
-                win_starts[wi] = tp.window_start
-                win_ends[wi] = tp.window_end
-            end
             for (ki, coeff) in enumerate(tp.coefficients)
                 coefficients[pi, wi, ki] = coeff
             end
@@ -195,14 +270,15 @@ function _ct_from_raw(
         model=model,
         wl=wl,
         ws=ws,
-        model_dimension=model_dimension,
+        derivative_points=derivative_points,
+        TM=TM,
         order=order,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate,
         channels=selected_channels,
         out_fn=out_fn,
     )
-    return CTResult(coefficients, errors, win_starts, win_ends, pair_labels, params)
+    return CTResult(coefficients, errors, T, t, win_starts, win_ends, pair_labels, params)
 end
 
 function _de_from_raw(
@@ -212,7 +288,8 @@ function _de_from_raw(
     model::AbstractVector{<:Integer},
     wl::Int,
     ws::Int,
-    model_dimension::Int,
+    derivative_points::Int,
+    TM::Int,
     order::Int,
     nr_tau::Int,
     sampling_rate,
@@ -223,12 +300,16 @@ function _de_from_raw(
     n_win = length(ch_data.timepoints)
 
     ergodicity = Vector{Float64}(undef, n_win)
-    win_starts = Vector{Int64}(undef, n_win)
-    win_ends = Vector{Int64}(undef, n_win)
+    T, t, win_starts, win_ends = _time_axes(
+        channels,
+        derivative_points,
+        TM,
+        sampling_rate,
+        wl,
+        ws,
+    )
 
     for (wi, tp) in enumerate(ch_data.timepoints)
-        win_starts[wi] = tp.window_start
-        win_ends[wi] = tp.window_end
         ergodicity[wi] = tp.error
     end
 
@@ -238,14 +319,15 @@ function _de_from_raw(
         model=model,
         wl=wl,
         ws=ws,
-        model_dimension=model_dimension,
+        derivative_points=derivative_points,
+        TM=TM,
         order=order,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate,
         channels=selected_channels,
         out_fn=out_fn,
     )
-    return DEResult(ergodicity, win_starts, win_ends, params)
+    return DEResult(ergodicity, T, t, win_starts, win_ends, params)
 end
 
 # =============================================================================
@@ -259,32 +341,43 @@ Run single-timeseries DDA directly on an EDF or ASCII file using 1-based channel
 
 Important keywords:
 - `binary_path`: resolve the DDA binary without relying on environment variables
-- `model`: values passed to `-MODEL`, default `[1, 2, 10]`
-- `model_dimension`: DDA model dimension (`-dm`)
+- `model`: optional custom values passed to `-MODEL`
+- `derivative_points`: preferred name for binary `-dm`; `model_dimension` remains a compatibility alias
+- Passing a custom `model` also requires explicit `model_dimension` or `derivative_points`, and `order`
+- `TM`: optional offset used only to compute `result.t`; defaults to `max(delays)`
 - `out_fn`: optional `-OUT_FN` base; defaults to a temporary path for the call
-- `sampling_rate`: values passed to `-SR`, default `(500, 1000)`
+- `sampling_rate`: optional values passed to `-SR`. If you pass `(N, N)`, it is only used for `result.t`
 """
 function run_st(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model::Union{Vector{Int}, Nothing}=nothing,
     wl::Int=DDADefaults.WINDOW_LENGTH,
     ws::Int=DDADefaults.WINDOW_STEP,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
+    derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
-    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     sampling_rate=DDADefaults.SAMPLING_RATE,
+    TM::Union{Int, Nothing}=nothing,
 )::STResult
     selected_channels = Runner._normalize_channels(channels)
     labels = _resolve_labels(file_path, selected_channels, channel_labels)
-    model_dimension_value = Runner._resolve_model_dimension(model_dimension, dm)
+    model_terms, derivative_points_value, order_value = _resolve_model_configuration(
+        model,
+        model_dimension,
+        derivative_points,
+        dm,
+        order,
+    )
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
+    tm_value = Runner._resolve_tm(Int[delays...], TM)
 
     raw = run_analysis_structured(
         file_path,
@@ -293,11 +386,12 @@ function run_st(
         window_length=wl,
         window_step=ws,
         delays=Int[delays...],
-        model=copy(model),
-        model_dimension=model_dimension_value,
-        order=order,
+        model=model_terms,
+        derivative_points=derivative_points_value,
+        order=order_value,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate_value,
+        TM=tm_value,
         out_fn=out_fn,
         binary_path=binary_path,
     )
@@ -308,11 +402,12 @@ function run_st(
         labels;
         sfreq=sfreq,
         delays=delays,
-        model=model,
+        model=model_terms,
         wl=wl,
         ws=ws,
-        model_dimension=model_dimension_value,
-        order=order,
+        derivative_points=derivative_points_value,
+        TM=tm_value,
+        order=order_value,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate_value,
         out_fn=out_fn,
@@ -330,7 +425,7 @@ function run_ct(
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model::Union{Vector{Int}, Nothing}=nothing,
     wl::Int=DDADefaults.WINDOW_LENGTH,
     ws::Int=DDADefaults.WINDOW_STEP,
     ct_wl::Union{Int, Nothing}=nothing,
@@ -339,18 +434,27 @@ function run_ct(
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
+    derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
-    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     sampling_rate=DDADefaults.SAMPLING_RATE,
+    TM::Union{Int, Nothing}=nothing,
 )::CTResult
     selected_channels = Runner._normalize_channels(channels)
     length(selected_channels) >= 2 || error("CT analysis requires at least 2 channels, got $(length(selected_channels))")
 
     labels = _resolve_labels(file_path, selected_channels, channel_labels)
     pair_labels = _pair_labels(labels)
-    model_dimension_value = Runner._resolve_model_dimension(model_dimension, dm)
+    model_terms, derivative_points_value, order_value = _resolve_model_configuration(
+        model,
+        model_dimension,
+        derivative_points,
+        dm,
+        order,
+    )
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
+    tm_value = Runner._resolve_tm(Int[delays...], TM)
     raw_pairs = StructuredChannelData[]
 
     for pair_channels in _pair_channel_sets(selected_channels)
@@ -363,11 +467,12 @@ function run_ct(
             ct_window_length=something(ct_wl, wl),
             ct_window_step=something(ct_ws, ws),
             delays=Int[delays...],
-            model=copy(model),
-            model_dimension=model_dimension_value,
-            order=order,
+            model=model_terms,
+            derivative_points=derivative_points_value,
+            order=order_value,
             nr_tau=nr_tau,
             sampling_rate=sampling_rate_value,
+            TM=tm_value,
             out_fn=out_fn,
             binary_path=binary_path,
         )
@@ -382,11 +487,12 @@ function run_ct(
         pair_labels;
         sfreq=sfreq,
         delays=delays,
-        model=model,
-        wl=wl,
-        ws=ws,
-        model_dimension=model_dimension_value,
-        order=order,
+        model=model_terms,
+        wl=something(ct_wl, wl),
+        ws=something(ct_ws, ws),
+        derivative_points=derivative_points_value,
+        TM=tm_value,
+        order=order_value,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate_value,
         out_fn=out_fn,
@@ -404,7 +510,7 @@ function run_de(
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model::Union{Vector{Int}, Nothing}=nothing,
     wl::Int=DDADefaults.WINDOW_LENGTH,
     ws::Int=DDADefaults.WINDOW_STEP,
     ct_wl::Union{Int, Nothing}=nothing,
@@ -412,14 +518,23 @@ function run_de(
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
+    derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
-    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     sampling_rate=DDADefaults.SAMPLING_RATE,
+    TM::Union{Int, Nothing}=nothing,
 )::DEResult
     selected_channels = Runner._normalize_channels(channels)
-    model_dimension_value = Runner._resolve_model_dimension(model_dimension, dm)
+    model_terms, derivative_points_value, order_value = _resolve_model_configuration(
+        model,
+        model_dimension,
+        derivative_points,
+        dm,
+        order,
+    )
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
+    tm_value = Runner._resolve_tm(Int[delays...], TM)
 
     raw = run_analysis_structured(
         file_path,
@@ -430,11 +545,12 @@ function run_de(
         ct_window_length=something(ct_wl, wl),
         ct_window_step=something(ct_ws, ws),
         delays=Int[delays...],
-        model=copy(model),
-        model_dimension=model_dimension_value,
-        order=order,
+        model=model_terms,
+        derivative_points=derivative_points_value,
+        order=order_value,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate_value,
+        TM=tm_value,
         out_fn=out_fn,
         binary_path=binary_path,
     )
@@ -444,11 +560,12 @@ function run_de(
         raw["DE"];
         sfreq=sfreq,
         delays=delays,
-        model=model,
-        wl=wl,
-        ws=ws,
-        model_dimension=model_dimension_value,
-        order=order,
+        model=model_terms,
+        wl=something(ct_wl, wl),
+        ws=something(ct_ws, ws),
+        derivative_points=derivative_points_value,
+        TM=tm_value,
+        order=order_value,
         nr_tau=nr_tau,
         sampling_rate=sampling_rate_value,
         out_fn=out_fn,
@@ -469,17 +586,19 @@ function run_st(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model::Union{Vector{Int}, Nothing}=nothing,
     wl::Int=DDADefaults.WINDOW_LENGTH,
     ws::Int=DDADefaults.WINDOW_STEP,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
+    derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
-    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     sampling_rate=DDADefaults.SAMPLING_RATE,
+    TM::Union{Int, Nothing}=nothing,
 )::STResult
     n_ch, _ = size(data)
     tmp = _write_temp_ascii(data)
@@ -496,10 +615,12 @@ function run_st(
             binary_path=binary_path,
             out_fn=out_fn,
             model_dimension=model_dimension,
+            derivative_points=derivative_points,
             dm=dm,
             order=order,
             nr_tau=nr_tau,
             sampling_rate=sampling_rate,
+            TM=TM,
         )
     finally
         isfile(tmp) && rm(tmp; force=true)
@@ -515,7 +636,7 @@ function run_ct(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model::Union{Vector{Int}, Nothing}=nothing,
     wl::Int=DDADefaults.WINDOW_LENGTH,
     ws::Int=DDADefaults.WINDOW_STEP,
     ct_wl::Union{Int, Nothing}=nothing,
@@ -524,10 +645,12 @@ function run_ct(
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
+    derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
-    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     sampling_rate=DDADefaults.SAMPLING_RATE,
+    TM::Union{Int, Nothing}=nothing,
 )::CTResult
     n_ch, _ = size(data)
     tmp = _write_temp_ascii(data)
@@ -546,10 +669,12 @@ function run_ct(
             binary_path=binary_path,
             out_fn=out_fn,
             model_dimension=model_dimension,
+            derivative_points=derivative_points,
             dm=dm,
             order=order,
             nr_tau=nr_tau,
             sampling_rate=sampling_rate,
+            TM=TM,
         )
     finally
         isfile(tmp) && rm(tmp; force=true)
@@ -565,7 +690,7 @@ function run_de(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Vector{Int}=copy(DDADefaults.MODEL_PARAMS),
+    model::Union{Vector{Int}, Nothing}=nothing,
     wl::Int=DDADefaults.WINDOW_LENGTH,
     ws::Int=DDADefaults.WINDOW_STEP,
     ct_wl::Union{Int, Nothing}=nothing,
@@ -573,10 +698,12 @@ function run_de(
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
     model_dimension::Union{Int, Nothing}=nothing,
+    derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
-    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     sampling_rate=DDADefaults.SAMPLING_RATE,
+    TM::Union{Int, Nothing}=nothing,
 )::DEResult
     n_ch, _ = size(data)
     tmp = _write_temp_ascii(data)
@@ -594,10 +721,12 @@ function run_de(
             binary_path=binary_path,
             out_fn=out_fn,
             model_dimension=model_dimension,
+            derivative_points=derivative_points,
             dm=dm,
             order=order,
             nr_tau=nr_tau,
             sampling_rate=sampling_rate,
+            TM=TM,
         )
     finally
         isfile(tmp) && rm(tmp; force=true)

@@ -645,10 +645,10 @@ function build_dda_command(
     end
 
     # Model parameters (defaults from binary spec)
-    push!(args, "-dm", "4", "-order", "4", "-nr_tau", "2")
+    push!(args, "-dm", "3", "-order", "4", "-nr_tau", "2")
 
     # Window parameters
-    push!(args, "-WL", string(window_length), "-WS", string(window_step))
+    push!(args, "-WLms", string(window_length), "-WSms", string(window_step))
 
     # SELECT mask using spec-generated function
     mask = generate_select_mask(variants)

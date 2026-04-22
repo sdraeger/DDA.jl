@@ -36,9 +36,7 @@ result = run_st(
     "data.edf",
     [1, 2, 3];
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    model=[1, 2, 10],
-    model_dimension=4,
-    sampling_rate=(500, 1000),
+    derivative_points=3,
     wl=2048,
     ws=1024,
 )
@@ -46,6 +44,8 @@ result = run_st(
 println(n_channels(result))
 println(n_windows(result))
 println(size(result.coefficients))
+println(result.T[1:3])
+println(result.t[1:3])
 ```
 
 ## Generic Binary API
@@ -61,18 +61,20 @@ result = run_analysis(
     ["ST", "SY"];
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     model=[1, 2, 10],
-    model_dimension=4,
+    derivative_points=3,
+    order=4,
     delays=[7, 10],
     window_length=2048,
     window_step=1024,
     time_range=(0.0, 50_000.0),
     sampling_rate=(500, 1000),
+    TM=10,
     out_fn=nothing,
 )
 
 println(size(result.q_matrix))
 for vr in result.variant_results
-    println("$(vr.variant_id): $(size(vr.q_matrix))")
+    println("$(vr.variant_id): coeffs=$(size(vr.coefficients)) T=$(length(vr.T))")
 end
 ```
 
@@ -113,9 +115,12 @@ result = run_st(
 
 - `channels` are 1-indexed everywhere in the Julia API
 - File-based calls infer channel labels from EDF headers and from optional ASCII/TSV header rows. Pass `channel_labels` to override them explicitly.
-- `model` maps directly to the binary `-MODEL` argument and defaults to `[1, 2, 10]`
-- `model_dimension` is the DDA model dimension passed to `-dm`
-- `sampling_rate` maps directly to `-SR low high` and defaults to `(500, 1000)`
+- `model` maps directly to the binary `-MODEL` argument. If you pass a custom model, also pass explicit `model_dimension` or `derivative_points`, and `order`
+- `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
+- `model_dimension` remains available as a compatibility alias for `derivative_points`
+- Results expose the raw DDA time column as `result.T` and the derived axis as `result.t`
+- `TM` is used only for `result.t` and defaults to `max(delays)`
+- `sampling_rate` is optional. When provided, it maps to `-SR low high` unless you pass `(N, N)`, in which case it is metadata-only and used only for `result.t`
 - `out_fn` is `nothing` by default. In that case the wrapper uses a temporary output base for the call. If you pass `out_fn`, that exact value is sent to `-OUT_FN`
 
 ## Low-Level Helpers
