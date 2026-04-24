@@ -11,7 +11,7 @@ using DelayDifferentialAnalysis
     defaults = contract.defaults
     @test dda_defaults.WINDOW_LENGTH == Int(defaults.window_length)
     @test dda_defaults.WINDOW_STEP == Int(defaults.window_step)
-    @test dda_defaults.MODEL_DIMENSION == Int(defaults.model_dimension)
+    @test dda_defaults.DERIVATIVE_POINTS == Int(defaults.derivative_points)
     @test dda_defaults.POLYNOMIAL_ORDER == Int(defaults.polynomial_order)
     @test dda_defaults.NUM_TAU == Int(defaults.num_tau)
     @test collect(dda_defaults.MODEL_PARAMS) == Int.(defaults.model_terms)

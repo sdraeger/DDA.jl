@@ -33,8 +33,8 @@ You can resolve the binary in two ways:
 using DelayDifferentialAnalysis
 
 result = run_st(
-    "data.edf",
-    [1, 2, 3];
+    file_path="data.edf",
+    channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     derivative_points=3,
     wl=2048,
@@ -50,15 +50,15 @@ println(result.t[1:3])
 
 ## Generic Binary API
 
-Use `run_analysis` when you want to call the binary directly with arbitrary variants without constructing a request object.
+Use `run_analysis` when you want to call the binary directly with arbitrary flavors without constructing a request object.
 
 ```julia
 using DelayDifferentialAnalysis
 
 result = run_analysis(
-    "recording.edf",
-    [1, 2, 3, 4],
-    ["ST", "SY"];
+    file_path="recording.edf",
+    channels=[1, 2, 3, 4],
+    flavors=["ST", "SY"],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     model=[1, 2, 10],
     derivative_points=3,
@@ -82,9 +82,9 @@ The structured variant is also available:
 
 ```julia
 raw = run_analysis_structured(
-    "recording.edf",
-    [1, 2, 3],
-    ["ST", "DE"];
+    file_path="recording.edf",
+    channels=[1, 2, 3],
+    flavors=["ST", "DE"],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
 )
 ```
@@ -93,9 +93,9 @@ raw = run_analysis_structured(
 
 The package also provides typed wrappers:
 
-- `run_st(file_path, channels; ...)`
-- `run_ct(file_path, channels; ...)`
-- `run_de(file_path, channels; ...)`
+- `run_st(file_path=..., channels=...; ...)`
+- `run_ct(file_path=..., channels=...; ...)`
+- `run_de(file_path=..., channels=...; ...)`
 
 Use `run_ct(...)` for pairwise CT analysis across multiple channels. The generic `run_analysis(...)` function is the raw binary wrapper.
 
@@ -104,7 +104,7 @@ Each wrapper also accepts an in-memory `channels × samples` matrix instead of a
 ```julia
 data = randn(3, 10_000)
 result = run_st(
-    data;
+    data=data;
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     wl=200,
     ws=100,
@@ -115,9 +115,9 @@ result = run_st(
 
 - `channels` are 1-indexed everywhere in the Julia API
 - File-based calls infer channel labels from EDF headers and from optional ASCII/TSV header rows. Pass `channel_labels` to override them explicitly.
-- `model` maps directly to the binary `-MODEL` argument. If you pass a custom model, also pass explicit `model_dimension` or `derivative_points`, and `order`
+- `model` maps directly to the binary `-MODEL` argument. If you pass a custom model, also pass explicit `derivative_points` and `order`
 - `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
-- `model_dimension` remains available as a compatibility alias for `derivative_points`
+- `select` can be passed to `run_analysis(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
 - Results expose the raw DDA time column as `result.T` and the derived axis as `result.t`
 - `TM` is used only for `result.t` and defaults to `max(delays)`
 - `sampling_rate` is optional. When provided, it maps to `-SR low high` unless you pass `(N, N)`, in which case it is metadata-only and used only for `result.t`

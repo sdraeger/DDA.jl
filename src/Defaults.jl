@@ -2,7 +2,6 @@
 module DDADefaults
     const MODEL_PARAMS = [1, 2, 10]
     const DERIVATIVE_POINTS = 3
-    const MODEL_DIMENSION = DERIVATIVE_POINTS
     const POLYNOMIAL_ORDER = 4
     const NUM_TAU = 2
     const WINDOW_LENGTH = 200
@@ -19,7 +18,7 @@ module DDAFlags
     const SELECT_MASK = "-SELECT"
     const MODEL = "-MODEL"
     const DELAY_VALUES = "-TAU"
-    const MODEL_DIMENSION = "-dm"
+    const DERIVATIVE_POINTS = "-dm"
     const POLYNOMIAL_ORDER = "-order"
     const NUM_TAU = "-nr_tau"
     const WINDOW_LENGTH = "-WLms"

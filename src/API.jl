@@ -69,7 +69,6 @@ end
 
 function _resolve_model_configuration(
     model::Union{AbstractVector{<:Integer}, Nothing},
-    model_dimension::Union{Int, Nothing},
     derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
     order::Union{Int, Nothing},
@@ -77,14 +76,12 @@ function _resolve_model_configuration(
     Runner._validate_custom_model_request(
         model,
         nothing,
-        model_dimension,
         derivative_points,
         dm,
         order,
     )
     resolved_model = Int[something(model, copy(DDADefaults.MODEL_PARAMS))...]
     resolved_derivative_points = Runner._resolve_derivative_points(
-        model_dimension,
         derivative_points,
         dm,
     )
@@ -114,7 +111,6 @@ function _make_params(;
         "wl" => wl,
         "ws" => ws,
         "derivative_points" => derivative_points,
-        "model_dimension" => derivative_points,
         "dm" => derivative_points,
         "TM" => TM,
         "order" => order,
@@ -335,20 +331,20 @@ end
 # =============================================================================
 
 """
-    run_st(file_path, channels; kwargs...) -> STResult
+    run_st(; file_path, channels, kwargs...) -> STResult
 
 Run single-timeseries DDA directly on an EDF or ASCII file using 1-based channel indices.
 
 Important keywords:
 - `binary_path`: resolve the DDA binary without relying on environment variables
 - `model`: optional custom values passed to `-MODEL`
-- `derivative_points`: preferred name for binary `-dm`; `model_dimension` remains a compatibility alias
-- Passing a custom `model` also requires explicit `model_dimension` or `derivative_points`, and `order`
+- `derivative_points`: preferred name for binary `-dm`
+- Passing a custom `model` also requires explicit `derivative_points` and `order`
 - `TM`: optional offset used only to compute `result.t`; defaults to `max(delays)`
 - `out_fn`: optional `-OUT_FN` base; defaults to a temporary path for the call
 - `sampling_rate`: optional values passed to `-SR`. If you pass `(N, N)`, it is only used for `result.t`
 """
-function run_st(
+function _run_st_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
@@ -359,7 +355,6 @@ function run_st(
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
-    model_dimension::Union{Int, Nothing}=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -371,7 +366,6 @@ function run_st(
     labels = _resolve_labels(file_path, selected_channels, channel_labels)
     model_terms, derivative_points_value, order_value = _resolve_model_configuration(
         model,
-        model_dimension,
         derivative_points,
         dm,
         order,
@@ -379,10 +373,10 @@ function run_st(
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
     tm_value = Runner._resolve_tm(Int[delays...], TM)
 
-    raw = run_analysis_structured(
-        file_path,
-        selected_channels,
-        ["ST"];
+    raw = run_analysis_structured(;
+        file_path=file_path,
+        channels=selected_channels,
+        flavors=["ST"],
         window_length=wl,
         window_step=ws,
         delays=Int[delays...],
@@ -416,11 +410,11 @@ function run_st(
 end
 
 """
-    run_ct(file_path, channels; kwargs...) -> CTResult
+    run_ct(; file_path, channels, kwargs...) -> CTResult
 
 Run cross-timeseries DDA directly on an EDF or ASCII file using 1-based channel indices.
 """
-function run_ct(
+function _run_ct_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
@@ -433,7 +427,6 @@ function run_ct(
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
-    model_dimension::Union{Int, Nothing}=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -448,7 +441,6 @@ function run_ct(
     pair_labels = _pair_labels(labels)
     model_terms, derivative_points_value, order_value = _resolve_model_configuration(
         model,
-        model_dimension,
         derivative_points,
         dm,
         order,
@@ -458,10 +450,10 @@ function run_ct(
     raw_pairs = StructuredChannelData[]
 
     for pair_channels in _pair_channel_sets(selected_channels)
-        raw = run_analysis_structured(
-            file_path,
-            pair_channels,
-            ["CT"];
+        raw = run_analysis_structured(;
+            file_path=file_path,
+            channels=pair_channels,
+            flavors=["CT"],
             window_length=wl,
             window_step=ws,
             ct_window_length=something(ct_wl, wl),
@@ -501,11 +493,11 @@ function run_ct(
 end
 
 """
-    run_de(file_path, channels; kwargs...) -> DEResult
+    run_de(; file_path, channels, kwargs...) -> DEResult
 
 Run dynamical-ergodicity DDA directly on an EDF or ASCII file using 1-based channel indices.
 """
-function run_de(
+function _run_de_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
@@ -517,7 +509,6 @@ function run_de(
     ct_ws::Union{Int, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
-    model_dimension::Union{Int, Nothing}=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -528,7 +519,6 @@ function run_de(
     selected_channels = Runner._normalize_channels(channels)
     model_terms, derivative_points_value, order_value = _resolve_model_configuration(
         model,
-        model_dimension,
         derivative_points,
         dm,
         order,
@@ -536,10 +526,10 @@ function run_de(
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
     tm_value = Runner._resolve_tm(Int[delays...], TM)
 
-    raw = run_analysis_structured(
-        file_path,
-        selected_channels,
-        ["DE"];
+    raw = run_analysis_structured(;
+        file_path=file_path,
+        channels=selected_channels,
+        flavors=["DE"],
         window_length=wl,
         window_step=ws,
         ct_window_length=something(ct_wl, wl),
@@ -578,11 +568,11 @@ end
 # =============================================================================
 
 """
-    run_st(data; kwargs...) -> STResult
+    run_st(; data, kwargs...) -> STResult
 
 Run single-timeseries DDA on an in-memory channels × samples matrix.
 """
-function run_st(
+function _run_st_matrix(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
@@ -592,7 +582,6 @@ function run_st(
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
-    model_dimension::Union{Int, Nothing}=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -603,7 +592,7 @@ function run_st(
     n_ch, _ = size(data)
     tmp = _write_temp_ascii(data)
     try
-        return run_st(
+        return _run_st_file(
             tmp,
             collect(1:n_ch);
             sfreq=sfreq,
@@ -614,7 +603,6 @@ function run_st(
             channel_labels=channel_labels,
             binary_path=binary_path,
             out_fn=out_fn,
-            model_dimension=model_dimension,
             derivative_points=derivative_points,
             dm=dm,
             order=order,
@@ -628,11 +616,11 @@ function run_st(
 end
 
 """
-    run_ct(data; kwargs...) -> CTResult
+    run_ct(; data, kwargs...) -> CTResult
 
 Run cross-timeseries DDA on an in-memory channels × samples matrix.
 """
-function run_ct(
+function _run_ct_matrix(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
@@ -644,7 +632,6 @@ function run_ct(
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
-    model_dimension::Union{Int, Nothing}=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -655,7 +642,7 @@ function run_ct(
     n_ch, _ = size(data)
     tmp = _write_temp_ascii(data)
     try
-        return run_ct(
+        return _run_ct_file(
             tmp,
             collect(1:n_ch);
             sfreq=sfreq,
@@ -668,7 +655,6 @@ function run_ct(
             channel_labels=channel_labels,
             binary_path=binary_path,
             out_fn=out_fn,
-            model_dimension=model_dimension,
             derivative_points=derivative_points,
             dm=dm,
             order=order,
@@ -682,11 +668,11 @@ function run_ct(
 end
 
 """
-    run_de(data; kwargs...) -> DEResult
+    run_de(; data, kwargs...) -> DEResult
 
 Run dynamical-ergodicity DDA on an in-memory channels × samples matrix.
 """
-function run_de(
+function _run_de_matrix(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
@@ -697,7 +683,6 @@ function run_de(
     ct_ws::Union{Int, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
-    model_dimension::Union{Int, Nothing}=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -708,7 +693,7 @@ function run_de(
     n_ch, _ = size(data)
     tmp = _write_temp_ascii(data)
     try
-        return run_de(
+        return _run_de_file(
             tmp,
             collect(1:n_ch);
             sfreq=sfreq,
@@ -720,7 +705,6 @@ function run_de(
             ct_ws=ct_ws,
             binary_path=binary_path,
             out_fn=out_fn,
-            model_dimension=model_dimension,
             derivative_points=derivative_points,
             dm=dm,
             order=order,
@@ -731,6 +715,57 @@ function run_de(
     finally
         isfile(tmp) && rm(tmp; force=true)
     end
+end
+
+function run_st(;
+    file_path::Union{AbstractString, Nothing}=nothing,
+    data::Union{AbstractMatrix{<:Real}, Nothing}=nothing,
+    channels::Union{AbstractVector{<:Integer}, Nothing}=nothing,
+    kwargs...,
+)::STResult
+    if (file_path === nothing) == (data === nothing)
+        error("Pass exactly one of `file_path` or `data`")
+    end
+    if file_path !== nothing
+        channels !== nothing || error("`channels` is required when using `file_path`")
+        return _run_st_file(file_path, channels; kwargs...)
+    end
+    channels === nothing || error("`channels` is not used with `data`; the matrix defines the channel set")
+    return _run_st_matrix(data; kwargs...)
+end
+
+function run_ct(;
+    file_path::Union{AbstractString, Nothing}=nothing,
+    data::Union{AbstractMatrix{<:Real}, Nothing}=nothing,
+    channels::Union{AbstractVector{<:Integer}, Nothing}=nothing,
+    kwargs...,
+)::CTResult
+    if (file_path === nothing) == (data === nothing)
+        error("Pass exactly one of `file_path` or `data`")
+    end
+    if file_path !== nothing
+        channels !== nothing || error("`channels` is required when using `file_path`")
+        return _run_ct_file(file_path, channels; kwargs...)
+    end
+    channels === nothing || error("`channels` is not used with `data`; the matrix defines the channel set")
+    return _run_ct_matrix(data; kwargs...)
+end
+
+function run_de(;
+    file_path::Union{AbstractString, Nothing}=nothing,
+    data::Union{AbstractMatrix{<:Real}, Nothing}=nothing,
+    channels::Union{AbstractVector{<:Integer}, Nothing}=nothing,
+    kwargs...,
+)::DEResult
+    if (file_path === nothing) == (data === nothing)
+        error("Pass exactly one of `file_path` or `data`")
+    end
+    if file_path !== nothing
+        channels !== nothing || error("`channels` is required when using `file_path`")
+        return _run_de_file(file_path, channels; kwargs...)
+    end
+    channels === nothing || error("`channels` is not used with `data`; the matrix defines the channel set")
+    return _run_de_matrix(data; kwargs...)
 end
 
 end # module API

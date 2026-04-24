@@ -253,7 +253,7 @@ end
                 # This should fail with "Input file not found", NOT "UndefVarError: UUIDs"
                 err = nothing
                 try
-                    run_analysis(runner, request)
+                    run_analysis(; runner=runner, request=request)
                 catch e
                     err = e
                 end
@@ -383,7 +383,7 @@ end
                     )
 
                     try
-                        result = run_analysis(request)
+                        result = run_analysis(; request=request)
 
                         @test !isempty(result.id)
                         @test result.file_path == test_data
@@ -410,7 +410,7 @@ end
                     )
 
                     try
-                        result = run_analysis(request)
+                        result = run_analysis(; request=request)
 
                         @test length(result.variant_results) == 2
 
@@ -433,12 +433,25 @@ end
         touch(fake_binary)
 
         try
+            @test_throws MethodError run_analysis(
+                "/nonexistent/path/to/file.edf",
+                [1, 2, 3],
+                ["ST"];
+                binary_path=fake_binary,
+            )
+            @test_throws MethodError run_analysis_structured(
+                "/nonexistent/path/to/file.edf",
+                [1, 2, 3],
+                ["ST"];
+                binary_path=fake_binary,
+            )
+
             err = nothing
             try
-                run_analysis(
-                    "/nonexistent/path/to/file.edf",
-                    [1, 2, 3],
-                    ["ST"];
+                run_analysis(;
+                    file_path="/nonexistent/path/to/file.edf",
+                    channels=[1, 2, 3],
+                    flavors=["ST"],
                     binary_path=fake_binary,
                 )
             catch e
@@ -447,6 +460,58 @@ end
 
             @test err !== nothing
             @test occursin("Input file not found", string(err))
+
+            @test_throws MethodError run_analysis(;
+                file_path="test.edf",
+                channels=[1],
+                variants=["ST"],
+                binary_path=fake_binary,
+            )
+
+            err = nothing
+            try
+                run_analysis_structured(;
+                    file_path="/nonexistent/path/to/file.edf",
+                    channels=[1, 2],
+                    flavors=["ST"],
+                    binary_path=fake_binary,
+                )
+            catch e
+                err = e
+            end
+
+            @test err !== nothing
+            @test occursin("Input file not found", string(err))
+
+            @test_throws MethodError run_analysis_structured(;
+                file_path="test.edf",
+                channels=[1],
+                variants=["ST"],
+                binary_path=fake_binary,
+            )
+
+            err = nothing
+            try
+                run_analysis(;
+                    file_path="/nonexistent/path/to/file.edf",
+                    channels=[1, 2],
+                    select=[0, 0, 0, 0, 1, 1],
+                    binary_path=fake_binary,
+                )
+            catch e
+                err = e
+            end
+
+            @test err !== nothing
+            @test occursin("Input file not found", string(err))
+
+            @test_throws MethodError run_analysis(;
+                file_path="test.edf",
+                channels=[1],
+                flavors=["ST"],
+                binary_path=fake_binary,
+                model_dimension=4,
+            )
         finally
             rm(fake_binary, force=true)
         end
@@ -475,6 +540,11 @@ end
                 output_base,
             )
             argv = collect(cmd)
+            cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
+                runner,
+                request,
+                output_base,
+            )
 
             if Sys.iswindows()
                 @test argv[1] == fake_binary
@@ -491,12 +561,15 @@ end
             @test argv[(findfirst(==("-WSms"), argv) + 1)] == "100"
             @test argv[(findfirst(==("-dm"), argv) + 1)] == "5"
             @test argv[(findfirst(==("-SR"), argv) + 1):(findfirst(==("-SR"), argv) + 2)] == ["500", "1000"]
+            if !Sys.iswindows()
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/dda_custom_output -CH_list 1 3 5 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WLms 200 -WSms 100 -dm 5 -order 4 -nr_tau 2 -SR 500 1000"
+            end
         finally
             rm(fake_binary, force=true)
         end
     end
 
-    @testset "Sampling rate (N, N) is metadata-only" begin
+    @testset "Sampling rate is only passed when explicitly requested" begin
         fake_binary = tempname()
         touch(fake_binary)
 
@@ -511,6 +584,45 @@ end
             cmd = DelayDifferentialAnalysis.Runner.build_command(runner, request, "/tmp/out")
             argv = collect(cmd)
             @test !("-SR" in argv)
+
+            default_request = DDARequest("test.edf", [1], ["ST"])
+            default_cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
+                runner,
+                default_request,
+                "/tmp/default_out",
+            )
+            @test !occursin(" -SR ", default_cmd_str)
+            if !Sys.iswindows()
+                @test default_cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/default_out -CH_list 1 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WLms 200 -WSms 100 -dm 3 -order 4 -nr_tau 2"
+            end
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "Explicit select overrides variant strings" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            request = DDARequest(
+                "test.edf",
+                [1, 2],
+                ["ST"];
+                select=[0, 0, 0, 0, 1, 1],
+            )
+            cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
+                runner,
+                request,
+                "/tmp/select_out",
+            )
+
+            @test request.variants == ["DE", "SY"]
+            @test request.select == [0, 0, 0, 0, 1, 1]
+            if !Sys.iswindows()
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/select_out -CH_list 1 2 -SELECT 0 0 0 0 1 1 -MODEL 1 2 10 -TAU 7 10 -WLms 200 -WSms 100 -dm 3 -order 4 -nr_tau 2 -WL_CT 200 -WS_CT 100"
+            end
         finally
             rm(fake_binary, force=true)
         end

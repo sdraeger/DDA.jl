@@ -11,7 +11,7 @@ using DelayDifferentialAnalysis
             @info "Skipping run_st integration test: DDA binary not found"
         else
             data = randn(2, 10000)
-            result = run_st(data; sfreq=256.0, wl=200, ws=100)
+            result = run_st(data=data; sfreq=256.0, wl=200, ws=100)
 
             @test result isa STResult
             @test n_channels(result) == 2
@@ -27,7 +27,7 @@ using DelayDifferentialAnalysis
             @info "Skipping run_st custom labels test: DDA binary not found"
         else
             data = randn(2, 10000)
-            result = run_st(data; sfreq=256.0, wl=200, ws=100,
+            result = run_st(data=data; sfreq=256.0, wl=200, ws=100,
                            channel_labels=["Fp1", "Fp2"])
             @test result.channel_labels == ["Fp1", "Fp2"]
         end
@@ -40,7 +40,7 @@ using DelayDifferentialAnalysis
             # CT needs more data and explicit CT window params
             data = randn(3, 20000)
             try
-                result = run_ct(data; sfreq=256.0, wl=200, ws=100)
+                result = run_ct(data=data; sfreq=256.0, wl=200, ws=100)
                 @test result isa CTResult
                 @test n_pairs(result) == 3  # C(3,2) = 3
                 @test n_windows(result) > 0
@@ -54,7 +54,14 @@ using DelayDifferentialAnalysis
 
     @testset "run_ct requires 2+ channels" begin
         data = randn(1, 5000)
-        @test_throws ErrorException run_ct(data; sfreq=256.0)
+        @test_throws ErrorException run_ct(data=data; sfreq=256.0)
+    end
+
+    @testset "Public run_* APIs are keyword-only" begin
+        data = randn(2, 1024)
+        @test_throws MethodError run_st(data)
+        @test_throws MethodError run_ct(data)
+        @test_throws MethodError run_de(data)
     end
 
     @testset "file-based label resolution uses file metadata when available" begin
@@ -98,8 +105,8 @@ using DelayDifferentialAnalysis
 
         try
             @test_throws ErrorException run_st(
-                "/nonexistent/path/to/data.edf",
-                [1, 2];
+                file_path="/nonexistent/path/to/data.edf",
+                channels=[1, 2],
                 binary_path=fake_binary,
             )
         finally
@@ -113,7 +120,7 @@ using DelayDifferentialAnalysis
 
         try
             @test_throws ErrorException run_st(
-                randn(2, 1024);
+                data=randn(2, 1024),
                 binary_path=fake_binary,
                 model=[1, 2, 10],
             )
@@ -175,9 +182,9 @@ using DelayDifferentialAnalysis
         else
             data = randn(3, 20_000)
 
-            st = run_st(data; binary_path=repo_binary, wl=200, ws=100)
-            ct = run_ct(data; binary_path=repo_binary, wl=200, ws=100, ct_wl=2, ct_ws=2)
-            de = run_de(data; binary_path=repo_binary, wl=200, ws=100, ct_wl=2, ct_ws=2)
+            st = run_st(data=data; binary_path=repo_binary, wl=200, ws=100)
+            ct = run_ct(data=data; binary_path=repo_binary, wl=200, ws=100, ct_wl=2, ct_ws=2)
+            de = run_de(data=data; binary_path=repo_binary, wl=200, ws=100, ct_wl=2, ct_ws=2)
 
             @test n_channels(st) == 3
             @test n_pairs(ct) == 3
@@ -194,7 +201,7 @@ using DelayDifferentialAnalysis
             # DE needs more data
             data = randn(2, 20000)
             try
-                result = run_de(data; sfreq=256.0, wl=200, ws=100)
+                result = run_de(data=data; sfreq=256.0, wl=200, ws=100)
                 @test result isa DEResult
                 @test n_windows(result) > 0
                 @test length(result.ergodicity) == n_windows(result)

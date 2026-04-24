@@ -8,8 +8,8 @@ Julia bindings for Delay Differential Analysis (DDA).
 using DelayDifferentialAnalysis
 
 result = run_st(
-    "data.edf",
-    [1, 2, 3];
+    file_path="data.edf",
+    channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     derivative_points=3,
     wl=200,
@@ -25,8 +25,8 @@ println(result.t[1])                  # derived time axis
 # Cross-Timeseries
 ```julia
 result = run_ct(
-    "data.edf",
-    [1, 2, 3];
+    file_path="data.edf",
+    channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     wl=200,
     ws=100,
@@ -37,8 +37,8 @@ println(n_pairs(result))  # 3 pairs for 3 channels
 # Dynamical Ergodicity
 ```julia
 result = run_de(
-    "data.edf",
-    [1, 2, 3];
+    file_path="data.edf",
+    channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     wl=200,
     ws=100,
@@ -55,9 +55,9 @@ println(decode_model_encoding([1, 2, 10]; num_delays=2, polynomial_order=4))
 # Low-Level API
 ```julia
 result = run_analysis(
-    "data.edf",
-    [1, 2, 3],
-    ["ST"];
+    file_path="data.edf",
+    channels=[1, 2, 3],
+    flavors=["ST"],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     derivative_points=3,
     window_length=200,

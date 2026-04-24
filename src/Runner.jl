@@ -73,6 +73,7 @@ DDA analysis request parameters.
 - `time_range`: Optional time range in samples
 - `ct_channel_pairs`: Channel pairs for CT (1-based)
 - `cd_channel_pairs`: Directed pairs for CD (1-based)
+- `select`: Optional explicit SELECT mask overriding `variants`
 - `sampling_rate`: Optional `-SR` pair `(low, high)`
 - `tm`: Optional `TM` value used only to compute the derived `t` axis
 - `out_fn`: Optional output base passed to `-OUT_FN`
@@ -88,6 +89,7 @@ struct DDARequest
     time_range::Union{TimeRange, Nothing}
     ct_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     cd_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
+    select::Union{Vector{Int}, Nothing}
     sampling_rate::Union{Tuple{Int, Int}, Nothing}
     tm::Int
     out_fn::Union{String, Nothing}
@@ -116,17 +118,45 @@ function _normalize_pairs(
     return normalized
 end
 
+function _normalize_select(
+    select::Union{AbstractVector{<:Integer}, Nothing},
+)::Union{Vector{Int}, Nothing}
+    select === nothing && return nothing
+    normalized = Int[select...]
+    length(normalized) == SELECT_MASK_SIZE || error(
+        "`select` must have $(SELECT_MASK_SIZE) entries",
+    )
+    all(bit -> bit in (0, 1), normalized) || error("`select` entries must be 0 or 1")
+    any(!iszero, normalized) || error("`select` must enable at least one variant")
+    return normalized
+end
+
+function _resolve_variants(
+    variants::Union{AbstractVector{<:AbstractString}, Nothing},
+    select::Union{Vector{Int}, Nothing},
+)::Vector{String}
+    if select !== nothing
+        resolved = parse_select_mask(select)
+        isempty(resolved) && error("`select` must enable at least one non-reserved variant")
+        return resolved
+    end
+
+    variants === nothing && error("Provide `variants` or `select`")
+    normalized = String[variants...]
+    isempty(normalized) && error("At least one variant must be provided")
+    return normalized
+end
+
 function _resolve_derivative_points(
-    model_dimension::Union{Int, Nothing},
     derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
 )::Int
-    provided = filter(!isnothing, Any[model_dimension, derivative_points, dm])
+    provided = filter(!isnothing, Any[derivative_points, dm])
     if !isempty(provided)
         reference = Int(first(provided))
         for value in provided[2:end]
             Int(value) == reference || error(
-                "`model_dimension`, `derivative_points`, and `dm` disagree",
+                "`derivative_points` and `dm` disagree",
             )
         end
         reference > 0 || error("Derivative points must be positive")
@@ -138,16 +168,15 @@ end
 function _validate_custom_model_request(
     model::Union{AbstractVector{<:Integer}, Nothing},
     model_encoding::Union{AbstractVector{<:Integer}, Nothing},
-    model_dimension::Union{Int, Nothing},
     derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
     order::Union{Int, Nothing},
 )
     explicit_model = model !== nothing || model_encoding !== nothing
-    has_derivative_points = !isnothing(model_dimension) || !isnothing(derivative_points) || !isnothing(dm)
+    has_derivative_points = !isnothing(derivative_points) || !isnothing(dm)
     if explicit_model && (!has_derivative_points || isnothing(order))
         error(
-            "Passing `model` requires explicit `model_dimension` or `derivative_points`, and `order`",
+            "Passing `model` requires explicit `derivative_points`, and `order`",
         )
     end
     return nothing
@@ -324,7 +353,6 @@ Create a DDA analysis request.
 - `delays`: Delay (tau) values, default `$(DEFAULT_DELAYS)`
 - `model`: Optional custom model term indices passed to `-MODEL`
 - `model_encoding`: Backward-compatible alias for `model`
-- `model_dimension`: Compatibility alias for `derivative_points`
 - `derivative_points::Int=$(DDADefaults.DERIVATIVE_POINTS)`: Value passed to binary `-dm`
 - `dm`: Legacy alias for `derivative_points`
 - `order::Int=$(DDADefaults.POLYNOMIAL_ORDER)`: Polynomial order. Required when passing a custom `model`
@@ -332,6 +360,7 @@ Create a DDA analysis request.
 - `time_range`: Optional `(start, stop)` in samples
 - `ct_pairs`: CT channel pairs (1-based)
 - `cd_pairs`: CD directed pairs (1-based)
+- `select`: Optional explicit `-SELECT` mask. When passed, it overrides `variants`
 - `sampling_rate`: Optional `-SR` pair. Defaults to `$(DDADefaults.SAMPLING_RATE)`
 - `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
 - `out_fn`: Optional output base passed to `-OUT_FN`
@@ -339,7 +368,7 @@ Create a DDA analysis request.
 function DDARequest(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer},
-    variants::AbstractVector{<:AbstractString};
+    variants::Union{AbstractVector{<:AbstractString}, Nothing}=nothing;
     window_length::Int=DDADefaults.WINDOW_LENGTH,
     window_step::Int=DDADefaults.WINDOW_STEP,
     ct_window_length::Union{Int, Nothing}=nothing,
@@ -347,7 +376,6 @@ function DDARequest(
     delays::Vector{Int}=collect(DEFAULT_DELAYS),
     model::Union{Vector{Int}, Nothing}=nothing,
     model_encoding::Union{Vector{Int}, Nothing}=nothing,
-    model_dimension::Union{Int, Nothing}=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -355,6 +383,7 @@ function DDARequest(
     time_range::Union{Tuple{Real, Real}, Nothing}=nothing,
     ct_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
     cd_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
+    select::Union{AbstractVector{<:Integer}, Nothing}=nothing,
     sampling_rate::Union{
         Nothing,
         Real,
@@ -365,11 +394,11 @@ function DDARequest(
     out_fn::Union{AbstractString, Nothing}=nothing,
 )
     normalized_channels = _normalize_channels(channels)
-    normalized_variants = String[variants...]
+    normalized_select = _normalize_select(select)
+    normalized_variants = _resolve_variants(variants, normalized_select)
     _validate_custom_model_request(
         model,
         model_encoding,
-        model_dimension,
         derivative_points,
         dm,
         order,
@@ -377,7 +406,7 @@ function DDARequest(
     wp = WindowParameters(window_length, window_step, ct_window_length, ct_window_step)
     dp = DelayParameters(Int[delays...])
     mp = ModelParameters(
-        _resolve_derivative_points(model_dimension, derivative_points, dm),
+        _resolve_derivative_points(derivative_points, dm),
         something(order, DDADefaults.POLYNOMIAL_ORDER),
         nr_tau,
     )
@@ -395,6 +424,7 @@ function DDARequest(
         tr,
         _normalize_pairs(ct_pairs),
         _normalize_pairs(cd_pairs),
+        normalized_select,
         _normalize_sampling_rate(sampling_rate),
         _resolve_tm(dp.delays, TM),
         normalized_out_fn,
@@ -501,12 +531,8 @@ end
 # STRUCTURED ANALYSIS (new path — returns per-variant structured data)
 # =============================================================================
 
-"""
-    run_analysis_structured(runner, request) -> Dict{String, Vector{StructuredChannelData}}
-
-Execute DDA and return fully structured results per variant.
-"""
-function run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{String, Vector{StructuredChannelData}}
+"""Internal structured execution helper used by the keyword-only public API."""
+function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{String, Vector{StructuredChannelData}}
     if !isfile(request.file_path)
         error("Input file not found: $(request.file_path)")
     end
@@ -541,42 +567,37 @@ function run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{S
 end
 
 """
-    run_analysis_structured(request) -> Dict{String, Vector{StructuredChannelData}}
-
-Execute DDA with auto-discovered binary.
-"""
-function run_analysis_structured(request::DDARequest)::Dict{String, Vector{StructuredChannelData}}
-    runner = DDARunner()
-    return run_analysis_structured(runner, request)
-end
-
-"""
-    run_analysis_structured(file_path, channels, variants; binary_path=nothing, kwargs...)
+    run_analysis_structured(; file_path, channels, flavors, binary_path=nothing, kwargs...)
 
 Execute DDA without constructing a `DDARequest` explicitly.
 """
-function run_analysis_structured(
-    file_path::AbstractString,
-    channels::AbstractVector{<:Integer},
-    variants::AbstractVector{<:AbstractString};
+function run_analysis_structured(;
+    request::Union{DDARequest, Nothing}=nothing,
+    runner::Union{DDARunner, Nothing}=nothing,
+    file_path::Union{AbstractString, Nothing}=nothing,
+    channels::Union{AbstractVector{<:Integer}, Nothing}=nothing,
+    flavors::Union{AbstractVector{<:AbstractString}, Nothing}=nothing,
     binary_path::Union{AbstractString, Nothing}=nothing,
     kwargs...,
 )::Dict{String, Vector{StructuredChannelData}}
-    runner = DDARunner(; binary_path=binary_path)
-    request = DDARequest(file_path, channels, variants; kwargs...)
-    return run_analysis_structured(runner, request)
+    if request !== nothing
+        runner_obj = something(runner, DDARunner(; binary_path=binary_path))
+        return _run_analysis_structured(runner_obj, request)
+    end
+
+    file_path !== nothing || error("`file_path` keyword is required")
+    channels !== nothing || error("`channels` keyword is required")
+    runner_obj = DDARunner(; binary_path=binary_path)
+    request_obj = DDARequest(file_path, channels, flavors; kwargs...)
+    return _run_analysis_structured(runner_obj, request_obj)
 end
 
 # =============================================================================
 # LEGACY ANALYSIS (backward compat)
 # =============================================================================
 
-"""
-    run_analysis(runner, request) -> DDAResult
-
-Execute DDA analysis (legacy interface). Prefer `run_st`/`run_ct`/`run_de` instead.
-"""
-function run_analysis(runner::DDARunner, request::DDARequest)::DDAResult
+"""Internal legacy execution helper used by the keyword-only public API."""
+function _run_analysis(runner::DDARunner, request::DDARequest)::DDAResult
     if !isfile(request.file_path)
         error("Input file not found: $(request.file_path)")
     end
@@ -617,30 +638,29 @@ function run_analysis(runner::DDARunner, request::DDARequest)::DDAResult
 end
 
 """
-    run_analysis(request) -> DDAResult
-
-Execute DDA with auto-discovered binary (legacy interface).
-"""
-function run_analysis(request::DDARequest)::DDAResult
-    runner = DDARunner()
-    return run_analysis(runner, request)
-end
-
-"""
-    run_analysis(file_path, channels, variants; binary_path=nothing, kwargs...)
+    run_analysis(; file_path, channels, flavors, binary_path=nothing, kwargs...)
 
 Execute the DDA binary without constructing a `DDARequest` explicitly.
 """
-function run_analysis(
-    file_path::AbstractString,
-    channels::AbstractVector{<:Integer},
-    variants::AbstractVector{<:AbstractString};
+function run_analysis(;
+    request::Union{DDARequest, Nothing}=nothing,
+    runner::Union{DDARunner, Nothing}=nothing,
+    file_path::Union{AbstractString, Nothing}=nothing,
+    channels::Union{AbstractVector{<:Integer}, Nothing}=nothing,
+    flavors::Union{AbstractVector{<:AbstractString}, Nothing}=nothing,
     binary_path::Union{AbstractString, Nothing}=nothing,
     kwargs...,
 )::DDAResult
-    runner = DDARunner(; binary_path=binary_path)
-    request = DDARequest(file_path, channels, variants; kwargs...)
-    return run_analysis(runner, request)
+    if request !== nothing
+        runner_obj = something(runner, DDARunner(; binary_path=binary_path))
+        return _run_analysis(runner_obj, request)
+    end
+
+    file_path !== nothing || error("`file_path` keyword is required")
+    channels !== nothing || error("`channels` keyword is required")
+    runner_obj = DDARunner(; binary_path=binary_path)
+    request_obj = DDARequest(file_path, channels, flavors; kwargs...)
+    return _run_analysis(runner_obj, request_obj)
 end
 
 # =============================================================================
@@ -666,7 +686,7 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     end
 
     # SELECT mask
-    mask = generate_select_mask(request.variants)
+    mask = request.select === nothing ? generate_select_mask(request.variants) : request.select
     push!(args, "-SELECT")
     for bit in mask
         push!(args, string(bit))
@@ -724,6 +744,15 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     else
         return `$(runner.binary_path) $args`
     end
+end
+
+"""Render the generated shell call as a plain string for diagnostics and tests."""
+function build_command_string(
+    runner::DDARunner,
+    request::DDARequest,
+    output_base::String,
+)::String
+    return join(collect(build_command(runner, request, output_base)), " ")
 end
 
 # =============================================================================
