@@ -61,8 +61,8 @@ end
             @test request.file_path == "test.edf"
             @test request.channels == [1, 2, 3]
             @test request.variants == ["ST", "SY"]
-            @test request.window_params.window_length == 200   # Default (DDADefaults.WINDOW_LENGTH)
-            @test request.window_params.window_step == 100    # Default (DDADefaults.WINDOW_STEP)
+            @test request.window_params.WL === nothing
+            @test request.window_params.WS === nothing
             @test request.delay_params.delays == collect(DEFAULT_DELAYS)
             @test request.model_terms == DelayDifferentialAnalysis.DDADefaults.MODEL_PARAMS
             @test request.sampling_rate == DelayDifferentialAnalysis.DDADefaults.SAMPLING_RATE
@@ -74,8 +74,8 @@ end
                 "data.edf",
                 [1, 2],
                 ["ST", "CT", "CD"];
-                window_length=4096,
-                window_step=2048,
+                WL=4096,
+                WS=2048,
                 ct_window_length=4,
                 ct_window_step=2,
                 delays=[1, 2, 3, 4, 5],
@@ -91,8 +91,8 @@ end
                 out_fn="/tmp/custom_dda_output"
             )
 
-            @test request.window_params.window_length == 4096
-            @test request.window_params.window_step == 2048
+            @test request.window_params.WL == 4096
+            @test request.window_params.WS == 2048
             @test request.window_params.ct_window_length == 4
             @test request.window_params.ct_window_step == 2
             @test request.delay_params.delays == [1, 2, 3, 4, 5]
@@ -235,13 +235,13 @@ end
             @test length(datetime_str) > 0
         end
 
-        @testset "run_analysis fails gracefully with missing file" begin
+        @testset "run_DDA fails gracefully with missing file" begin
             request = DDARequest(
                 "/nonexistent/path/to/file.edf",
                 [1, 2, 3],
                 ["ST", "SY"];
-                window_length=2048,
-                window_step=1024
+                WL=2048,
+                WS=1024
             )
 
             # Create a fake binary path to bypass binary discovery
@@ -253,7 +253,7 @@ end
                 # This should fail with "Input file not found", NOT "UndefVarError: UUIDs"
                 err = nothing
                 try
-                    run_analysis(; runner=runner, request=request)
+                    run_DDA(; runner=runner, request=request)
                 catch e
                     err = e
                 end
@@ -376,14 +376,14 @@ end
                         test_data,
                         [1, 2, 3],
                         ["ST"];
-                        window_length=2048,
-                        window_step=1024,
+                        WL=2048,
+                        WS=1024,
                         delays=collect(1:10),
                         time_range=(0.0, 6000.0)
                     )
 
                     try
-                        result = run_analysis(; request=request)
+                        result = run_DDA(; request=request)
 
                         @test !isempty(result.id)
                         @test result.file_path == test_data
@@ -404,13 +404,13 @@ end
                         test_data,
                         [1, 2],
                         ["ST", "SY"];
-                        window_length=2048,
-                        window_step=1024,
+                        WL=2048,
+                        WS=1024,
                         time_range=(0.0, 4000.0)
                     )
 
                     try
-                        result = run_analysis(; request=request)
+                        result = run_DDA(; request=request)
 
                         @test length(result.variant_results) == 2
 
@@ -428,12 +428,17 @@ end
         end
     end
 
-    @testset "Direct run_analysis API" begin
+    @testset "Direct run_DDA API" begin
         fake_binary = tempname()
         touch(fake_binary)
 
         try
-            @test_throws MethodError run_analysis(
+            @test :run_DDA in names(DelayDifferentialAnalysis)
+            @test !(:run_analysis in names(DelayDifferentialAnalysis))
+
+            @test_throws UndefVarError run_analysis
+
+            @test_throws MethodError run_DDA(
                 "/nonexistent/path/to/file.edf",
                 [1, 2, 3],
                 ["ST"];
@@ -448,7 +453,7 @@ end
 
             err = nothing
             try
-                run_analysis(;
+                run_DDA(;
                     file_path="/nonexistent/path/to/file.edf",
                     channels=[1, 2, 3],
                     flavors=["ST"],
@@ -461,7 +466,7 @@ end
             @test err !== nothing
             @test occursin("Input file not found", string(err))
 
-            @test_throws MethodError run_analysis(;
+            @test_throws MethodError run_DDA(;
                 file_path="test.edf",
                 channels=[1],
                 variants=["ST"],
@@ -492,7 +497,7 @@ end
 
             err = nothing
             try
-                run_analysis(;
+                run_DDA(;
                     file_path="/nonexistent/path/to/file.edf",
                     channels=[1, 2],
                     select=[0, 0, 0, 0, 1, 1],
@@ -505,19 +510,27 @@ end
             @test err !== nothing
             @test occursin("Input file not found", string(err))
 
-            @test_throws MethodError run_analysis(;
+            @test_throws MethodError run_DDA(;
                 file_path="test.edf",
                 channels=[1],
                 flavors=["ST"],
                 binary_path=fake_binary,
                 model_dimension=4,
             )
+
+            @test_throws MethodError DDARequest(
+                "test.edf",
+                [1],
+                ["ST"];
+                window_length=200,
+                window_step=100,
+            )
         finally
             rm(fake_binary, force=true)
         end
     end
 
-    @testset "Command building uses explicit MODEL OUT_FN SR and 1-based channels" begin
+    @testset "Command building uses explicit MODEL OUT_FN SR WL WS and 1-based channels" begin
         fake_binary = tempname()
         touch(fake_binary)
 
@@ -530,6 +543,8 @@ end
                 model=[1, 2, 10],
                 derivative_points=5,
                 order=4,
+                WL=200,
+                WS=100,
                 out_fn="/tmp/dda_custom_output",
                 sampling_rate=(500, 1000),
             )
@@ -557,12 +572,14 @@ end
             @test argv[findfirst(==("-OUT_FN"), argv) + 1] == "/tmp/dda_custom_output"
             @test argv[(findfirst(==("-CH_list"), argv) + 1):(findfirst(==("-SELECT"), argv) - 1)] == ["1", "3", "5"]
             @test argv[(findfirst(==("-MODEL"), argv) + 1):(findfirst(==("-TAU"), argv) - 1)] == ["1", "2", "10"]
-            @test argv[(findfirst(==("-WLms"), argv) + 1)] == "200"
-            @test argv[(findfirst(==("-WSms"), argv) + 1)] == "100"
+            @test !("-WLms" in argv)
+            @test !("-WSms" in argv)
+            @test argv[(findfirst(==("-WL"), argv) + 1)] == "200"
+            @test argv[(findfirst(==("-WS"), argv) + 1)] == "100"
             @test argv[(findfirst(==("-dm"), argv) + 1)] == "5"
             @test argv[(findfirst(==("-SR"), argv) + 1):(findfirst(==("-SR"), argv) + 2)] == ["500", "1000"]
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/dda_custom_output -CH_list 1 3 5 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WLms 200 -WSms 100 -dm 5 -order 4 -nr_tau 2 -SR 500 1000"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/dda_custom_output -CH_list 1 3 5 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 5 -order 4 -nr_tau 2 -SR 500 1000"
             end
         finally
             rm(fake_binary, force=true)
@@ -592,8 +609,12 @@ end
                 "/tmp/default_out",
             )
             @test !occursin(" -SR ", default_cmd_str)
+            @test !occursin(" -WL ", default_cmd_str)
+            @test !occursin(" -WS ", default_cmd_str)
+            @test !occursin(" -WLms ", default_cmd_str)
+            @test !occursin(" -WSms ", default_cmd_str)
             if !Sys.iswindows()
-                @test default_cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/default_out -CH_list 1 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WLms 200 -WSms 100 -dm 3 -order 4 -nr_tau 2"
+                @test default_cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/default_out -CH_list 1 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -dm 3 -order 4 -nr_tau 2"
             end
         finally
             rm(fake_binary, force=true)
@@ -611,6 +632,8 @@ end
                 [1, 2],
                 ["ST"];
                 select=[0, 0, 0, 0, 1, 1],
+                WL=200,
+                WS=100,
             )
             cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
                 runner,
@@ -621,7 +644,7 @@ end
             @test request.variants == ["DE", "SY"]
             @test request.select == [0, 0, 0, 0, 1, 1]
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/select_out -CH_list 1 2 -SELECT 0 0 0 0 1 1 -MODEL 1 2 10 -TAU 7 10 -WLms 200 -WSms 100 -dm 3 -order 4 -nr_tau 2 -WL_CT 200 -WS_CT 100"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/select_out -CH_list 1 2 -SELECT 0 0 0 0 1 1 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 3 -order 4 -nr_tau 2 -WL_CT 200 -WS_CT 100"
             end
         finally
             rm(fake_binary, force=true)
@@ -633,8 +656,8 @@ end
             "test.edf",
             [1],
             ["ST"];
-            window_length=128,
-            window_step=64,
+            WL=128,
+            WS=64,
             delays=[7, 10],
             derivative_points=3,
             sampling_rate=(500, 500),

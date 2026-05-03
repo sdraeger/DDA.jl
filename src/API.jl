@@ -93,8 +93,8 @@ function _make_params(;
     sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
-    wl::Int,
-    ws::Int,
+    WL::Union{Int, Nothing},
+    WS::Union{Int, Nothing},
     derivative_points::Int,
     TM::Int,
     order::Int,
@@ -108,8 +108,8 @@ function _make_params(;
         "sfreq" => sfreq,
         "delays" => Int[delays...],
         "model" => Int[model...],
-        "wl" => wl,
-        "ws" => ws,
+        "WL" => WL,
+        "WS" => WS,
         "derivative_points" => derivative_points,
         "dm" => derivative_points,
         "TM" => TM,
@@ -125,16 +125,26 @@ end
 
 function _window_bounds(
     n_windows::Int,
-    window_length::Int,
-    window_step::Int;
+    WL::Union{Int, Nothing},
+    WS::Union{Int, Nothing};
+    channels::Vector{StructuredChannelData}=StructuredChannelData[],
     start_offset::Int=0,
 )::Tuple{Vector{Int64}, Vector{Int64}}
+    if WL === nothing || WS === nothing
+        if isempty(channels)
+            return (Int64[], Int64[])
+        end
+        starts = Int64[round(Int64, tp.window_start) for tp in channels[1].timepoints]
+        ends = Int64[round(Int64, tp.window_end) for tp in channels[1].timepoints]
+        return (starts, ends)
+    end
+
     window_starts = Vector{Int64}(undef, n_windows)
     window_ends = Vector{Int64}(undef, n_windows)
 
     for window_idx in 1:n_windows
-        window_start = Int64(start_offset + (window_idx - 1) * window_step)
-        window_end = Int64(window_start + window_length)
+        window_start = Int64(start_offset + (window_idx - 1) * WS)
+        window_end = Int64(window_start + WL)
         window_starts[window_idx] = window_start
         window_ends[window_idx] = window_end
     end
@@ -147,8 +157,8 @@ function _time_axes(
     derivative_points::Int,
     TM::Int,
     sampling_rate,
-    window_length::Int,
-    window_step::Int;
+    WL::Union{Int, Nothing},
+    WS::Union{Int, Nothing};
     start_offset::Int=0,
 )::Tuple{Vector{Float64}, Vector{Float64}, Vector{Int64}, Vector{Int64}}
     n_windows = isempty(channels) ? 0 : length(channels[1].timepoints)
@@ -156,8 +166,9 @@ function _time_axes(
     t = Runner._compute_t_axis(T, derivative_points, TM, sampling_rate)
     window_starts, window_ends = _window_bounds(
         n_windows,
-        window_length,
-        window_step;
+        WL,
+        WS;
+        channels=channels,
         start_offset=start_offset,
     )
     return T, t, window_starts, window_ends
@@ -169,8 +180,8 @@ function _st_from_raw(
     sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
-    wl::Int,
-    ws::Int,
+    WL::Union{Int, Nothing},
+    WS::Union{Int, Nothing},
     derivative_points::Int,
     TM::Int,
     order::Int,
@@ -190,8 +201,8 @@ function _st_from_raw(
         derivative_points,
         TM,
         sampling_rate,
-        wl,
-        ws,
+        WL,
+        WS,
     )
 
     for (ci, ch_data) in enumerate(channels)
@@ -207,8 +218,8 @@ function _st_from_raw(
         sfreq=sfreq,
         delays=delays,
         model=model,
-        wl=wl,
-        ws=ws,
+        WL=WL,
+        WS=WS,
         derivative_points=derivative_points,
         TM=TM,
         order=order,
@@ -226,8 +237,8 @@ function _ct_from_raw(
     sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
-    wl::Int,
-    ws::Int,
+    WL::Union{Int, Nothing},
+    WS::Union{Int, Nothing},
     derivative_points::Int,
     TM::Int,
     order::Int,
@@ -247,8 +258,8 @@ function _ct_from_raw(
         derivative_points,
         TM,
         sampling_rate,
-        wl,
-        ws,
+        WL,
+        WS,
     )
 
     for (pi, pair_data) in enumerate(pairs)
@@ -264,8 +275,8 @@ function _ct_from_raw(
         sfreq=sfreq,
         delays=delays,
         model=model,
-        wl=wl,
-        ws=ws,
+        WL=WL,
+        WS=WS,
         derivative_points=derivative_points,
         TM=TM,
         order=order,
@@ -282,8 +293,8 @@ function _de_from_raw(
     sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
-    wl::Int,
-    ws::Int,
+    WL::Union{Int, Nothing},
+    WS::Union{Int, Nothing},
     derivative_points::Int,
     TM::Int,
     order::Int,
@@ -301,8 +312,8 @@ function _de_from_raw(
         derivative_points,
         TM,
         sampling_rate,
-        wl,
-        ws,
+        WL,
+        WS,
     )
 
     for (wi, tp) in enumerate(ch_data.timepoints)
@@ -313,8 +324,8 @@ function _de_from_raw(
         sfreq=sfreq,
         delays=delays,
         model=model,
-        wl=wl,
-        ws=ws,
+        WL=WL,
+        WS=WS,
         derivative_points=derivative_points,
         TM=TM,
         order=order,
@@ -350,8 +361,8 @@ function _run_st_file(
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int}, Nothing}=nothing,
-    wl::Int=DDADefaults.WINDOW_LENGTH,
-    ws::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int, Nothing}=DDADefaults.WL,
+    WS::Union{Int, Nothing}=DDADefaults.WS,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
@@ -377,8 +388,8 @@ function _run_st_file(
         file_path=file_path,
         channels=selected_channels,
         flavors=["ST"],
-        window_length=wl,
-        window_step=ws,
+        WL=WL,
+        WS=WS,
         delays=Int[delays...],
         model=model_terms,
         derivative_points=derivative_points_value,
@@ -397,8 +408,8 @@ function _run_st_file(
         sfreq=sfreq,
         delays=delays,
         model=model_terms,
-        wl=wl,
-        ws=ws,
+        WL=WL,
+        WS=WS,
         derivative_points=derivative_points_value,
         TM=tm_value,
         order=order_value,
@@ -420,8 +431,8 @@ function _run_ct_file(
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int}, Nothing}=nothing,
-    wl::Int=DDADefaults.WINDOW_LENGTH,
-    ws::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int, Nothing}=DDADefaults.WL,
+    WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,
     ct_ws::Union{Int, Nothing}=nothing,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
@@ -454,10 +465,10 @@ function _run_ct_file(
             file_path=file_path,
             channels=pair_channels,
             flavors=["CT"],
-            window_length=wl,
-            window_step=ws,
-            ct_window_length=something(ct_wl, wl),
-            ct_window_step=something(ct_ws, ws),
+            WL=WL,
+            WS=WS,
+            ct_window_length=ct_wl === nothing ? WL : ct_wl,
+            ct_window_step=ct_ws === nothing ? WS : ct_ws,
             delays=Int[delays...],
             model=model_terms,
             derivative_points=derivative_points_value,
@@ -480,8 +491,8 @@ function _run_ct_file(
         sfreq=sfreq,
         delays=delays,
         model=model_terms,
-        wl=something(ct_wl, wl),
-        ws=something(ct_ws, ws),
+        WL=ct_wl === nothing ? WL : ct_wl,
+        WS=ct_ws === nothing ? WS : ct_ws,
         derivative_points=derivative_points_value,
         TM=tm_value,
         order=order_value,
@@ -503,8 +514,8 @@ function _run_de_file(
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int}, Nothing}=nothing,
-    wl::Int=DDADefaults.WINDOW_LENGTH,
-    ws::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int, Nothing}=DDADefaults.WL,
+    WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,
     ct_ws::Union{Int, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
@@ -530,10 +541,10 @@ function _run_de_file(
         file_path=file_path,
         channels=selected_channels,
         flavors=["DE"],
-        window_length=wl,
-        window_step=ws,
-        ct_window_length=something(ct_wl, wl),
-        ct_window_step=something(ct_ws, ws),
+        WL=WL,
+        WS=WS,
+        ct_window_length=ct_wl === nothing ? WL : ct_wl,
+        ct_window_step=ct_ws === nothing ? WS : ct_ws,
         delays=Int[delays...],
         model=model_terms,
         derivative_points=derivative_points_value,
@@ -551,8 +562,8 @@ function _run_de_file(
         sfreq=sfreq,
         delays=delays,
         model=model_terms,
-        wl=something(ct_wl, wl),
-        ws=something(ct_ws, ws),
+        WL=ct_wl === nothing ? WL : ct_wl,
+        WS=ct_ws === nothing ? WS : ct_ws,
         derivative_points=derivative_points_value,
         TM=tm_value,
         order=order_value,
@@ -577,8 +588,8 @@ function _run_st_matrix(
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int}, Nothing}=nothing,
-    wl::Int=DDADefaults.WINDOW_LENGTH,
-    ws::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int, Nothing}=DDADefaults.WL,
+    WS::Union{Int, Nothing}=DDADefaults.WS,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
@@ -598,8 +609,8 @@ function _run_st_matrix(
             sfreq=sfreq,
             delays=delays,
             model=model,
-            wl=wl,
-            ws=ws,
+            WL=WL,
+            WS=WS,
             channel_labels=channel_labels,
             binary_path=binary_path,
             out_fn=out_fn,
@@ -625,8 +636,8 @@ function _run_ct_matrix(
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int}, Nothing}=nothing,
-    wl::Int=DDADefaults.WINDOW_LENGTH,
-    ws::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int, Nothing}=DDADefaults.WL,
+    WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,
     ct_ws::Union{Int, Nothing}=nothing,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
@@ -648,8 +659,8 @@ function _run_ct_matrix(
             sfreq=sfreq,
             delays=delays,
             model=model,
-            wl=wl,
-            ws=ws,
+            WL=WL,
+            WS=WS,
             ct_wl=ct_wl,
             ct_ws=ct_ws,
             channel_labels=channel_labels,
@@ -677,8 +688,8 @@ function _run_de_matrix(
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int}, Nothing}=nothing,
-    wl::Int=DDADefaults.WINDOW_LENGTH,
-    ws::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int, Nothing}=DDADefaults.WL,
+    WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,
     ct_ws::Union{Int, Nothing}=nothing,
     binary_path::Union{String, Nothing}=nothing,
@@ -699,8 +710,8 @@ function _run_de_matrix(
             sfreq=sfreq,
             delays=delays,
             model=model,
-            wl=wl,
-            ws=ws,
+            WL=WL,
+            WS=WS,
             ct_wl=ct_wl,
             ct_ws=ct_ws,
             binary_path=binary_path,

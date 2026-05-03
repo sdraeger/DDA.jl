@@ -617,8 +617,8 @@ function build_dda_command(
     output_file::String,
     variants::Vector{String};
     channels::Vector{Int}=[1, 2, 3],
-    window_length::Int=2048,
-    window_step::Int=1024,
+    WL::Union{Int, Nothing}=2048,
+    WS::Union{Int, Nothing}=1024,
     delays::Vector{Int}=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     start_sample::Union{Int, Nothing}=nothing,
     end_sample::Union{Int, Nothing}=nothing,
@@ -648,7 +648,8 @@ function build_dda_command(
     push!(args, "-dm", "3", "-order", "4", "-nr_tau", "2")
 
     # Window parameters
-    push!(args, "-WLms", string(window_length), "-WSms", string(window_step))
+    WL !== nothing && push!(args, "-WL", string(WL))
+    WS !== nothing && push!(args, "-WS", string(WS))
 
     # SELECT mask using spec-generated function
     mask = generate_select_mask(variants)
@@ -767,8 +768,8 @@ end
                 output_file,
                 ["ST"];
                 channels=[1, 2, 3],
-                window_length=2048,
-                window_step=1024,
+                WL=2048,
+                WS=1024,
                 delays=collect(1:10),
                 start_sample=0,
                 end_sample=6000,

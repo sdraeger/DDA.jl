@@ -12,8 +12,8 @@ result = run_st(
     channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     derivative_points=3,
-    wl=200,
-    ws=100,
+    WL=200,
+    WS=100,
 )
 println(n_channels(result))           # 3
 println(n_windows(result))            # depends on data length
@@ -28,8 +28,8 @@ result = run_ct(
     file_path="data.edf",
     channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    wl=200,
-    ws=100,
+    WL=200,
+    WS=100,
 )
 println(n_pairs(result))  # 3 pairs for 3 channels
 ```
@@ -40,8 +40,8 @@ result = run_de(
     file_path="data.edf",
     channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    wl=200,
-    ws=100,
+    WL=200,
+    WS=100,
 )
 println(result.ergodicity |> length)
 ```
@@ -54,14 +54,14 @@ println(decode_model_encoding([1, 2, 10]; num_delays=2, polynomial_order=4))
 
 # Low-Level API
 ```julia
-result = run_analysis(
+result = run_DDA(
     file_path="data.edf",
     channels=[1, 2, 3],
     flavors=["ST"],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     derivative_points=3,
-    window_length=200,
-    window_step=100,
+    WL=200,
+    WS=100,
 )
 ```
 """
@@ -99,7 +99,7 @@ export n_channels, n_windows, n_coeffs, n_pairs, to_dataframe
 include("Runner.jl")
 using .Runner
 export DDARequest, DDAResult, VariantResultData
-export DDARunner, run_analysis
+export DDARunner, run_DDA
 export StructuredTimepoint, StructuredChannelData
 export run_analysis_structured, parse_output_file_structured
 

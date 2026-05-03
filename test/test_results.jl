@@ -9,7 +9,7 @@ using DelayDifferentialAnalysis
         ws = collect(1:100:500)
         we = ws .+ 99
         labels = ["ch1", "ch2", "ch3"]
-        params = Dict{String,Any}("wl" => 100)
+        params = Dict{String,Any}("WL" => 100)
 
         r = STResult(coeffs, errs, ws, we, labels, params)
 
@@ -17,7 +17,7 @@ using DelayDifferentialAnalysis
         @test n_windows(r) == 5
         @test n_coeffs(r) == 3
         @test r.channel_labels == labels
-        @test r.params["wl"] == 100
+        @test r.params["WL"] == 100
         @test size(r.coefficients) == (3, 5, 3)
         @test size(r.errors) == (3, 5)
         @test r.T == Float64.(ws)

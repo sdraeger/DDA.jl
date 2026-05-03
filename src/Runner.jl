@@ -13,7 +13,7 @@ using ..Variants
 using ..DDADefaults
 
 export DDARequest, DDAResult, VariantResultData
-export DDARunner, run_analysis
+export DDARunner, run_DDA
 export StructuredTimepoint, StructuredChannelData
 export run_analysis_structured, parse_output_file_structured
 
@@ -29,13 +29,13 @@ end
 
 """Window parameters for DDA analysis."""
 struct WindowParameters
-    window_length::Int
-    window_step::Int
+    WL::Union{Int, Nothing}
+    WS::Union{Int, Nothing}
     ct_window_length::Union{Int, Nothing}
     ct_window_step::Union{Int, Nothing}
 end
 
-WindowParameters(wl::Int, ws::Int) = WindowParameters(wl, ws, nothing, nothing)
+WindowParameters(WL::Union{Int, Nothing}, WS::Union{Int, Nothing}) = WindowParameters(WL, WS, nothing, nothing)
 
 """Delay parameters for DDA analysis."""
 struct DelayParameters
@@ -346,8 +346,8 @@ end
 Create a DDA analysis request.
 
 # Keyword Arguments
-- `window_length::Int=$(DDADefaults.WINDOW_LENGTH)`: Analysis window length
-- `window_step::Int=$(DDADefaults.WINDOW_STEP)`: Window step size
+- `WL`: Optional analysis window length passed as `-WL`
+- `WS`: Optional window step size passed as `-WS`
 - `ct_window_length`: CT-specific window length
 - `ct_window_step`: CT-specific window step
 - `delays`: Delay (tau) values, default `$(DEFAULT_DELAYS)`
@@ -369,8 +369,8 @@ function DDARequest(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer},
     variants::Union{AbstractVector{<:AbstractString}, Nothing}=nothing;
-    window_length::Int=DDADefaults.WINDOW_LENGTH,
-    window_step::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int, Nothing}=DDADefaults.WL,
+    WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_window_length::Union{Int, Nothing}=nothing,
     ct_window_step::Union{Int, Nothing}=nothing,
     delays::Vector{Int}=collect(DEFAULT_DELAYS),
@@ -403,7 +403,7 @@ function DDARequest(
         dm,
         order,
     )
-    wp = WindowParameters(window_length, window_step, ct_window_length, ct_window_step)
+    wp = WindowParameters(WL, WS, ct_window_length, ct_window_step)
     dp = DelayParameters(Int[delays...])
     mp = ModelParameters(
         _resolve_derivative_points(derivative_points, dm),
@@ -597,7 +597,7 @@ end
 # =============================================================================
 
 """Internal legacy execution helper used by the keyword-only public API."""
-function _run_analysis(runner::DDARunner, request::DDARequest)::DDAResult
+function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
     if !isfile(request.file_path)
         error("Input file not found: $(request.file_path)")
     end
@@ -638,11 +638,11 @@ function _run_analysis(runner::DDARunner, request::DDARequest)::DDAResult
 end
 
 """
-    run_analysis(; file_path, channels, flavors, binary_path=nothing, kwargs...)
+    run_DDA(; file_path, channels, flavors, binary_path=nothing, kwargs...)
 
 Execute the DDA binary without constructing a `DDARequest` explicitly.
 """
-function run_analysis(;
+function run_DDA(;
     request::Union{DDARequest, Nothing}=nothing,
     runner::Union{DDARunner, Nothing}=nothing,
     file_path::Union{AbstractString, Nothing}=nothing,
@@ -653,14 +653,14 @@ function run_analysis(;
 )::DDAResult
     if request !== nothing
         runner_obj = something(runner, DDARunner(; binary_path=binary_path))
-        return _run_analysis(runner_obj, request)
+        return _run_DDA(runner_obj, request)
     end
 
     file_path !== nothing || error("`file_path` keyword is required")
     channels !== nothing || error("`channels` keyword is required")
     runner_obj = DDARunner(; binary_path=binary_path)
     request_obj = DDARequest(file_path, channels, flavors; kwargs...)
-    return _run_analysis(runner_obj, request_obj)
+    return _run_DDA(runner_obj, request_obj)
 end
 
 # =============================================================================
@@ -704,10 +704,15 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
         push!(args, string(d))
     end
 
-    # Window parameters
+    # Window parameters. `-WLms` and `-WSms` are special binary flags and are
+    # intentionally not emitted by this wrapper.
     wp = request.window_params
-    push!(args, "-WLms", string(wp.window_length))
-    push!(args, "-WSms", string(wp.window_step))
+    if wp.WL !== nothing
+        push!(args, "-WL", string(wp.WL))
+    end
+    if wp.WS !== nothing
+        push!(args, "-WS", string(wp.WS))
+    end
 
     # Model parameters
     mp = request.model_params
@@ -721,11 +726,13 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
         variant !== nothing && requires_ct_params(variant)
     end, request.variants)
 
-    if needs_ct || wp.ct_window_length !== nothing
-        ct_wl = something(wp.ct_window_length, wp.window_length)
-        ct_ws = something(wp.ct_window_step, wp.window_step)
-        push!(args, "-WL_CT", string(ct_wl))
-        push!(args, "-WS_CT", string(ct_ws))
+    if needs_ct || wp.ct_window_length !== nothing || wp.ct_window_step !== nothing
+        ct_wl = wp.ct_window_length === nothing ? wp.WL : wp.ct_window_length
+        ct_ws = wp.ct_window_step === nothing ? wp.WS : wp.ct_window_step
+        if ct_wl !== nothing && ct_ws !== nothing
+            push!(args, "-WL_CT", string(ct_wl))
+            push!(args, "-WS_CT", string(ct_ws))
+        end
     end
 
     # Time bounds
@@ -820,16 +827,18 @@ function parse_output_file_structured(filepath::String, stride::Integer)::Vector
     return channels
 end
 
-function _variant_window_spec(request::DDARequest, variant_abbrev::AbstractString)::Tuple{Int, Int}
+function _variant_window_spec(
+    request::DDARequest,
+    variant_abbrev::AbstractString,
+)::Union{Tuple{Int, Int}, Nothing}
     wp = request.window_params
     variant = get_variant_by_abbrev(String(variant_abbrev))
     if variant !== nothing && requires_ct_params(variant)
-        return (
-            something(wp.ct_window_length, wp.window_length),
-            something(wp.ct_window_step, wp.window_step),
-        )
+        WL = wp.ct_window_length === nothing ? wp.WL : wp.ct_window_length
+        WS = wp.ct_window_step === nothing ? wp.WS : wp.ct_window_step
+        return WL === nothing || WS === nothing ? nothing : (WL, WS)
     end
-    return (wp.window_length, wp.window_step)
+    return wp.WL === nothing || wp.WS === nothing ? nothing : (wp.WL, wp.WS)
 end
 
 function _normalized_window_bounds(
@@ -851,19 +860,40 @@ function _normalized_window_bounds(
     n_windows < 0 && error("n_windows must be non-negative")
     n_windows == 0 && return (Int64[], Int64[])
 
-    (window_length, window_step) = _variant_window_spec(request, variant_abbrev)
+    spec = _variant_window_spec(request, variant_abbrev)
+    spec === nothing && return (Int64[], Int64[])
+    (WL, WS) = spec
     first_start = request.time_range === nothing ? 0 : Int(floor(request.time_range.start))
     window_starts = Vector{Int64}(undef, Int(n_windows))
     window_ends = Vector{Int64}(undef, Int(n_windows))
 
     for window_idx in 1:Int(n_windows)
-        window_start = Int64(first_start + (window_idx - 1) * window_step)
-        window_end = Int64(window_start + window_length)
+        window_start = Int64(first_start + (window_idx - 1) * WS)
+        window_end = Int64(window_start + WL)
         window_starts[window_idx] = window_start
         window_ends[window_idx] = window_end
     end
 
     return window_starts, window_ends
+end
+
+function _raw_window_bounds(
+    channels::Vector{StructuredChannelData},
+)::Tuple{Vector{Int64}, Vector{Int64}}
+    isempty(channels) && return (Int64[], Int64[])
+    starts = Int64[round(Int64, tp.window_start) for tp in channels[1].timepoints]
+    ends = Int64[round(Int64, tp.window_end) for tp in channels[1].timepoints]
+    return (starts, ends)
+end
+
+function _result_window_bounds(
+    request::DDARequest,
+    variant_abbrev::String,
+    channels::Vector{StructuredChannelData},
+)::Tuple{Vector{Int64}, Vector{Int64}}
+    spec = _variant_window_spec(request, variant_abbrev)
+    spec === nothing && return _raw_window_bounds(channels)
+    return _normalized_window_bounds(request, variant_abbrev, length(channels[1].timepoints))
 end
 
 function _extract_raw_T(
@@ -981,7 +1011,7 @@ function _pack_variant_result(
         request.tm,
         request.sampling_rate,
     )
-    window_starts, window_ends = _normalized_window_bounds(request, variant_abbrev, n_windows)
+    window_starts, window_ends = _result_window_bounds(request, variant_abbrev, channels)
     q_matrix = n_coeffs > 0 ? coefficients[:, :, 1] : copy(errors)
 
     resolved_labels = channel_labels === nothing ? nothing : begin

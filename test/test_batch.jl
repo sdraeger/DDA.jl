@@ -7,7 +7,7 @@ using DelayDifferentialAnalysis
         errs = randn(3, 2, 5)
         labels = ["subj1", "subj2", "subj3"]
         ch_labels = ["ch1", "ch2"]
-        params = Dict{String,Any}("wl" => 200)
+        params = Dict{String,Any}("WL" => 200)
 
         g = GroupResult(coeffs, errs, labels, ch_labels, params, "ST")
 

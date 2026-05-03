@@ -71,7 +71,7 @@ Process multiple ASCII files through DDA.
 - `files::Vector{String}`: Paths to ASCII data files.
 - `variant::String="st"`: Analysis variant ("st", "ct", or "de").
 - `sfreq::Float64=1.0`: Sampling frequency.
-- `delays`, `model`, `wl`, `ws`: Standard DDA parameters.
+- `delays`, `model`, `WL`, `WS`: Standard DDA parameters.
 - `channel_labels`: Optional channel labels.
 - `binary_path`: Explicit binary path.
 - `progress::Bool=true`: Print progress.
@@ -86,8 +86,8 @@ function run_batch(
     sfreq::Float64=1.0,
     delays::Vector{Int}=collect(DDADefaults.DELAYS),
     model::Union{Vector{Int},Nothing}=nothing,
-    wl::Int=DDADefaults.WINDOW_LENGTH,
-    ws::Int=DDADefaults.WINDOW_STEP,
+    WL::Union{Int,Nothing}=DDADefaults.WL,
+    WS::Union{Int,Nothing}=DDADefaults.WS,
     channel_labels::Union{Vector{String},Nothing}=nothing,
     binary_path::Union{String,Nothing}=nothing,
     progress::Bool=true,
@@ -107,8 +107,8 @@ function run_batch(
     # Build kwargs for run function
     run_kwargs = Dict{Symbol,Any}(
         :sfreq => sfreq,
-        :wl => wl,
-        :ws => ws,
+        :WL => WL,
+        :WS => WS,
     )
     if model !== nothing
         run_kwargs[:model] = model

@@ -11,7 +11,7 @@ using DelayDifferentialAnalysis
             @info "Skipping run_st integration test: DDA binary not found"
         else
             data = randn(2, 10000)
-            result = run_st(data=data; sfreq=256.0, wl=200, ws=100)
+            result = run_st(data=data; sfreq=256.0, WL=200, WS=100)
 
             @test result isa STResult
             @test n_channels(result) == 2
@@ -27,7 +27,7 @@ using DelayDifferentialAnalysis
             @info "Skipping run_st custom labels test: DDA binary not found"
         else
             data = randn(2, 10000)
-            result = run_st(data=data; sfreq=256.0, wl=200, ws=100,
+            result = run_st(data=data; sfreq=256.0, WL=200, WS=100,
                            channel_labels=["Fp1", "Fp2"])
             @test result.channel_labels == ["Fp1", "Fp2"]
         end
@@ -40,7 +40,7 @@ using DelayDifferentialAnalysis
             # CT needs more data and explicit CT window params
             data = randn(3, 20000)
             try
-                result = run_ct(data=data; sfreq=256.0, wl=200, ws=100)
+                result = run_ct(data=data; sfreq=256.0, WL=200, WS=100)
                 @test result isa CTResult
                 @test n_pairs(result) == 3  # C(3,2) = 3
                 @test n_windows(result) > 0
@@ -153,8 +153,8 @@ using DelayDifferentialAnalysis
             sfreq=1.0,
             delays=[7, 10],
             model=[1, 2, 10],
-            wl=128,
-            ws=100,
+            WL=128,
+            WS=100,
             derivative_points=3,
             TM=12,
             order=4,
@@ -182,9 +182,9 @@ using DelayDifferentialAnalysis
         else
             data = randn(3, 20_000)
 
-            st = run_st(data=data; binary_path=repo_binary, wl=200, ws=100)
-            ct = run_ct(data=data; binary_path=repo_binary, wl=200, ws=100, ct_wl=2, ct_ws=2)
-            de = run_de(data=data; binary_path=repo_binary, wl=200, ws=100, ct_wl=2, ct_ws=2)
+            st = run_st(data=data; binary_path=repo_binary, WL=200, WS=100)
+            ct = run_ct(data=data; binary_path=repo_binary, WL=200, WS=100, ct_wl=2, ct_ws=2)
+            de = run_de(data=data; binary_path=repo_binary, WL=200, WS=100, ct_wl=2, ct_ws=2)
 
             @test n_channels(st) == 3
             @test n_pairs(ct) == 3
@@ -201,7 +201,7 @@ using DelayDifferentialAnalysis
             # DE needs more data
             data = randn(2, 20000)
             try
-                result = run_de(data=data; sfreq=256.0, wl=200, ws=100)
+                result = run_de(data=data; sfreq=256.0, WL=200, WS=100)
                 @test result isa DEResult
                 @test n_windows(result) > 0
                 @test length(result.ergodicity) == n_windows(result)

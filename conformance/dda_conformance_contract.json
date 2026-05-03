@@ -2,8 +2,8 @@
   "contract_version": "1.0.0",
   "dda_spec_version": "1.0.0",
   "defaults": {
-    "window_length": 200,
-    "window_step": 100,
+    "WL": null,
+    "WS": null,
     "derivative_points": 3,
     "polynomial_order": 4,
     "num_tau": 2,
