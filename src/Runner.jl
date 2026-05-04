@@ -93,6 +93,7 @@ struct DDARequest
     sampling_rate::Union{Tuple{Int, Int}, Nothing}
     tm::Int
     out_fn::Union{String, Nothing}
+    passthrough_args::Vector{String}
 end
 
 function _normalize_channels(channels::AbstractVector{<:Integer})::Vector{Int}
@@ -116,6 +117,60 @@ function _normalize_pairs(
         push!(normalized, (first_idx, second_idx))
     end
     return normalized
+end
+
+function _append_passthrough_value!(args::Vector{String}, value)
+    if value isa AbstractVector
+        for item in value
+            push!(args, string(item))
+        end
+        return args
+    end
+    push!(args, string(value))
+    return args
+end
+
+function _append_passthrough!(args::Vector{String}, flag::String, value)
+    value === nothing && return args
+    push!(args, flag)
+    return _append_passthrough_value!(args, value)
+end
+
+function _normalize_passthrough_int_list(name::String, value)::Union{Vector{Int}, Nothing}
+    value === nothing && return nothing
+    if !(value isa AbstractVector || value isa Tuple)
+        error("`$name` must be a list of integers")
+    end
+    normalized = Int[]
+    for item in value
+        item isa Integer || error("`$name` must contain only integers")
+        push!(normalized, Int(item))
+    end
+    return normalized
+end
+
+function _build_passthrough_args(;
+    tau_file::Union{AbstractString, Nothing}=nothing,
+    tau2=nothing,
+    model2=nothing,
+    WL_ct::Union{Integer, Nothing}=nothing,
+    WS_ct::Union{Integer, Nothing}=nothing,
+    no_norm::Bool=false,
+    WN_list=nothing,
+)::Vector{String}
+    args = String[]
+    normalized_tau2 = _normalize_passthrough_int_list("tau2", tau2)
+    normalized_model2 = _normalize_passthrough_int_list("model2", model2)
+    normalized_WN_list = _normalize_passthrough_int_list("WN_list", WN_list)
+
+    _append_passthrough!(args, "-TAU_file", tau_file)
+    _append_passthrough!(args, "-TAU2", normalized_tau2)
+    _append_passthrough!(args, "-MODEL2", normalized_model2)
+    _append_passthrough!(args, "-WL_CT", WL_ct)
+    _append_passthrough!(args, "-WS_CT", WS_ct)
+    no_norm && push!(args, "-NoNorm")
+    _append_passthrough!(args, "-WN_list", normalized_WN_list)
+    return args
 end
 
 function _normalize_select(
@@ -364,6 +419,7 @@ Create a DDA analysis request.
 - `sampling_rate`: Optional `-SR` pair. Defaults to `$(DDADefaults.SAMPLING_RATE)`
 - `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
 - `out_fn`: Optional output base passed to `-OUT_FN`
+- `tau_file`, `tau2`, `model2`, `WL_ct`, `WS_ct`, `no_norm`, `WN_list`: Raw binary passthrough arguments
 """
 function DDARequest(
     file_path::AbstractString,
@@ -392,6 +448,13 @@ function DDARequest(
     }=DDADefaults.SAMPLING_RATE,
     TM::Union{Int, Nothing}=nothing,
     out_fn::Union{AbstractString, Nothing}=nothing,
+    tau_file::Union{AbstractString, Nothing}=nothing,
+    tau2=nothing,
+    model2=nothing,
+    WL_ct::Union{Integer, Nothing}=nothing,
+    WS_ct::Union{Integer, Nothing}=nothing,
+    no_norm::Bool=false,
+    WN_list=nothing,
 )
     normalized_channels = _normalize_channels(channels)
     normalized_select = _normalize_select(select)
@@ -413,6 +476,15 @@ function DDARequest(
     terms = Int[something(model_encoding, model, copy(DDADefaults.MODEL_PARAMS))...]
     tr = time_range === nothing ? nothing : TimeRange(Float64(time_range[1]), Float64(time_range[2]))
     normalized_out_fn = out_fn === nothing ? nothing : expanduser(String(out_fn))
+    passthrough_args = _build_passthrough_args(;
+        tau_file=tau_file,
+        tau2=tau2,
+        model2=model2,
+        WL_ct=WL_ct,
+        WS_ct=WS_ct,
+        no_norm=no_norm,
+        WN_list=WN_list,
+    )
     return DDARequest(
         String(file_path),
         normalized_channels,
@@ -428,6 +500,7 @@ function DDARequest(
         _normalize_sampling_rate(sampling_rate),
         _resolve_tm(dp.delays, TM),
         normalized_out_fn,
+        passthrough_args,
     )
 end
 
@@ -745,6 +818,8 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     if _should_pass_sampling_rate(request.sampling_rate)
         push!(args, "-SR", string(request.sampling_rate[1]), string(request.sampling_rate[2]))
     end
+
+    append!(args, request.passthrough_args)
 
     if REQUIRES_SHELL_WRAPPER && !Sys.iswindows()
         return `sh $(runner.binary_path) $args`

@@ -119,6 +119,7 @@ result = run_st(
 - `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
 - `WL` and `WS` map to the binary `-WL` and `-WS` arguments. Both default to `nothing`; unset values are not passed to the binary.
 - `-WLms` and `-WSms` are special binary flags and are intentionally not emitted by this wrapper.
+- `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `WL_ct::Int` maps to `-WL_CT`, `WS_ct::Int` maps to `-WS_CT`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified.
 - `select` can be passed to `run_DDA(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
 - Results expose the raw DDA time column as `result.T` and the derived axis as `result.t`
 - `TM` is used only for `result.t` and defaults to `max(delays)`

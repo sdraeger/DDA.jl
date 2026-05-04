@@ -621,6 +621,84 @@ end
         end
     end
 
+    @testset "run_DDA passthrough kwargs map directly to binary flags" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            request = DDARequest(
+                "test.edf",
+                [1, 2],
+                ["ST"];
+                tau_file="/tmp/tau_values.txt",
+                tau2=[11, 12],
+                model2=[2, 5, 9],
+                WL_ct=33,
+                WS_ct=22,
+                no_norm=true,
+                WN_list=[4, 8, 12],
+            )
+            cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
+                runner,
+                request,
+                "/tmp/passthrough_out",
+            )
+            argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                request,
+                "/tmp/passthrough_out",
+            ))
+
+            @test "-TAU_file" in argv
+            @test argv[findfirst(==("-TAU_file"), argv) + 1] == "/tmp/tau_values.txt"
+            @test argv[(findfirst(==("-TAU2"), argv) + 1):(findfirst(==("-MODEL2"), argv) - 1)] == ["11", "12"]
+            @test argv[(findfirst(==("-MODEL2"), argv) + 1):(findfirst(==("-WL_CT"), argv) - 1)] == ["2", "5", "9"]
+            @test argv[findfirst(==("-WL_CT"), argv) + 1] == "33"
+            @test "-WS_CT" in argv
+            @test !("-WS_ct" in argv)
+            @test argv[findfirst(==("-WS_CT"), argv) + 1] == "22"
+            @test "-NoNorm" in argv
+            @test "-WN_list" in argv
+            @test !("WN_list" in argv)
+            @test argv[(findfirst(==("-WN_list"), argv) + 1):end] == ["4", "8", "12"]
+            if !Sys.iswindows()
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/passthrough_out -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -dm 3 -order 4 -nr_tau 2 -TAU_file /tmp/tau_values.txt -TAU2 11 12 -MODEL2 2 5 9 -WL_CT 33 -WS_CT 22 -NoNorm -WN_list 4 8 12"
+            end
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "run_DDA passthrough defaults are absent and list types are validated" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            request = DDARequest("test.edf", [1], ["ST"])
+            argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                request,
+                "/tmp/default_passthrough_out",
+            ))
+
+            @test !("-TAU_file" in argv)
+            @test !("-TAU2" in argv)
+            @test !("-MODEL2" in argv)
+            @test !("-WL_CT" in argv)
+            @test !("-WS_CT" in argv)
+            @test !("-NoNorm" in argv)
+            @test !("-WN_list" in argv)
+
+            @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; tau2=7)
+            @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; model2=[1, "bad"])
+            @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; WN_list=3)
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
     @testset "Explicit select overrides variant strings" begin
         fake_binary = tempname()
         touch(fake_binary)
