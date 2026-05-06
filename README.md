@@ -66,9 +66,8 @@ result = run_DDA(
     delays=[7, 10],
     WL=2048,
     WS=1024,
-    time_range=(0.0, 50_000.0),
+    time_range=(0, 50000),
     sampling_rate=(500, 1000),
-    TM=10,
     out_fn=nothing,
 )
 
@@ -143,13 +142,13 @@ println(path)
 
 ## Variants
 
-| Abbreviation | Name              | Description                                     |
-| ------------ | ----------------- | ----------------------------------------------- |
-| `ST`         | Single Timeseries | Analyzes individual channels independently      |
-| `CT`         | Cross-Timeseries  | Analyzes relationships between channel pairs    |
-| `CD`         | Cross-Dynamical   | Analyzes directed causal relationships          |
-| `DE`         | Delay Embedding   | Tests for ergodic behavior in dynamical systems |
-| `SY`         | Synchronization   | Detects synchronized behavior between signals   |
+| Abbreviation | Name                 | Description                                     
+| ------------ | -----------------    | ----------------------------------------------- 
+| `ST`         | Single Timeseries    | Analyzes individual channels independently      
+| `CT`         | Cross-Timeseries     | DDA on multiple channels simultaniously   
+| `CD`         | Cross-Dynamical      | Analyzes directed causal relationships          
+| `DE`         | Dynamical Ergodicity | Tests for dynamical similarity in dynamical systems 
+| `SY`         | Synchronization      | Detects synchronized behavior between signals   
 
 ## License
 
