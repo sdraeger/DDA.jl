@@ -70,9 +70,10 @@ result = run_DDA(
     out_fn=nothing,
 )
 
-println(size(result.q_matrix))
+println(size(result.T))  # first two raw integer binary columns
+println(size(result.A))  # all remaining raw binary columns
 for vr in result.variant_results
-    println("$(vr.variant_id): coeffs=$(size(vr.coefficients)) T=$(length(vr.T))")
+    println("$(vr.variant_id): T=$(size(vr.T)) A=$(size(vr.A))")
 end
 ```
 
@@ -119,7 +120,7 @@ result = run_st(
 - `-WLms` and `-WSms` are special binary flags and are intentionally not emitted by this wrapper.
 - `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `WL_ct::Int` maps to `-WL_CT`, `WS_ct::Int` maps to `-WS_CT`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified.
 - `select` can be passed to `run_DDA(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
-- Results expose the raw DDA time column as `result.T` and the derived axis as `result.t`
+- Low-level `run_DDA` results partition the raw binary output into `result.T::Matrix{Int64}` (the first two columns) and `result.A::Matrix{Float64}` (all remaining columns). High-level structured results expose raw window starts as `result.T` and the derived axis as `result.t`
 - `TM` is used only for `result.t` and defaults to `max(delays)`
 - `sampling_rate` is optional. When provided, it maps to `-SR low high` unless you pass `(N, N)`, in which case it is metadata-only and used only for `result.t`
 - `out_fn` is `nothing` by default. In that case the wrapper uses a temporary output base for the call. If you pass `out_fn`, that exact value is sent to `-OUT_FN`

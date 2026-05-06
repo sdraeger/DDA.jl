@@ -309,10 +309,24 @@ end
     # =============================================================================
 
     @testset "VariantResultData" begin
-        q_matrix = [1.0 2.0 3.0; 4.0 5.0 6.0]
-        coefficients = reshape(collect(1.0:12.0), 2, 3, 2)
+        T = [
+            0.0 128.0
+            100.0 228.0
+            200.0 328.0
+        ]
+        A = [
+            1.0 2.0 0.1 7.0 8.0 0.4
+            3.0 4.0 0.2 9.0 10.0 0.5
+            5.0 6.0 0.3 11.0 12.0 0.6
+        ]
+        coefficients = Array{Float64,3}(undef, 2, 3, 2)
+        coefficients[1, 1, :] = [1.0, 2.0]
+        coefficients[1, 2, :] = [3.0, 4.0]
+        coefficients[1, 3, :] = [5.0, 6.0]
+        coefficients[2, 1, :] = [7.0, 8.0]
+        coefficients[2, 2, :] = [9.0, 10.0]
+        coefficients[2, 3, :] = [11.0, 12.0]
         errors = [0.1 0.2 0.3; 0.4 0.5 0.6]
-        T = [0.0, 100.0, 200.0]
         t = [0.014, 0.114, 0.214]
         window_starts = [0, 64, 128]
         window_ends = [128, 192, 256]
@@ -321,7 +335,7 @@ end
         result = VariantResultData(
             "ST",
             "Single Timeseries",
-            q_matrix,
+            A,
             coefficients,
             errors,
             T,
@@ -333,7 +347,9 @@ end
 
         @test result.variant_id == "ST"
         @test result.variant_name == "Single Timeseries"
-        @test size(result.q_matrix) == (2, 3)
+        @test result.A == A
+        @test !(:q_matrix in fieldnames(typeof(result)))
+        @test eltype(result.T) == Int64
         @test size(result.coefficients) == (2, 3, 2)
         @test size(result.errors) == (2, 3)
         @test result.T == T
@@ -341,6 +357,49 @@ end
         @test result.window_starts == window_starts
         @test result.window_ends == window_ends
         @test result.channel_labels == labels
+    end
+
+    @testset "VariantResultData partitions raw binary output into T and A" begin
+        channels = [
+            StructuredChannelData(
+                1,
+                [
+                    StructuredTimepoint(10.0, 138.0, [1.0, 2.0, 3.0], 0.1),
+                    StructuredTimepoint(110.0, 238.0, [4.0, 5.0, 6.0], 0.2),
+                ],
+            ),
+            StructuredChannelData(
+                2,
+                [
+                    StructuredTimepoint(10.0, 138.0, [7.0, 8.0, 9.0], 0.3),
+                    StructuredTimepoint(110.0, 238.0, [10.0, 11.0, 12.0], 0.4),
+                ],
+            ),
+        ]
+        request = DDARequest("test.edf", [1, 2], ["ST"]; sampling_rate=nothing)
+        variant = get_variant_by_abbrev("ST")
+
+        result = DelayDifferentialAnalysis.Runner._pack_variant_result(
+            "ST",
+            variant,
+            channels,
+            request,
+            ["Channel 1", "Channel 2"],
+        )
+
+        @test result.T == [
+            10.0 138.0
+            110.0 238.0
+        ]
+        @test eltype(result.T) == Int64
+        @test result.A == [
+            1.0 2.0 3.0 0.1 7.0 8.0 9.0 0.3
+            4.0 5.0 6.0 0.2 10.0 11.0 12.0 0.4
+        ]
+        @test result.coefficients[1, 2, :] == [4.0, 5.0, 6.0]
+        @test result.coefficients[2, 1, :] == [7.0, 8.0, 9.0]
+        @test result.errors == [0.1 0.2; 0.3 0.4]
+        @test result.t == [24.0, 124.0]
     end
 
     # =============================================================================
@@ -387,12 +446,15 @@ end
 
                         @test !isempty(result.id)
                         @test result.file_path == test_data
-                        @test size(result.q_matrix, 1) > 0
-                        @test size(result.q_matrix, 2) > 0
+                        @test size(result.T, 1) > 0
+                        @test size(result.T, 2) == 2
+                        @test eltype(result.T) == Int64
+                        @test size(result.A, 1) > 0
+                        @test size(result.A, 2) > 1
                         @test length(result.variant_results) == 1
                         @test result.variant_results[1].variant_id == "ST"
 
-                        @info "ST result" size=size(result.q_matrix) timepoints=size(result.q_matrix, 2)
+                        @info "ST result" size=size(result.A) windows=size(result.A, 1)
                     catch e
                         @warn "ST analysis failed" exception=e
                         @test_broken true

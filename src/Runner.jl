@@ -526,26 +526,32 @@ end
 # LEGACY RESULT TYPES (backward compat)
 # =============================================================================
 
-"""Result data for a single variant (legacy)."""
+"""
+Result data for a single variant.
+
+`T` contains the first two integer columns emitted by the binary. `A` contains every
+remaining column emitted by the binary, preserving output-file order.
+"""
 struct VariantResultData
     variant_id::String
     variant_name::String
-    q_matrix::Matrix{Float64}
+    A::Matrix{Float64}
     coefficients::Array{Float64,3}
     errors::Matrix{Float64}
-    T::Vector{Float64}
+    T::Matrix{Int64}
     t::Vector{Float64}
     window_starts::Vector{Int64}
     window_ends::Vector{Int64}
     channel_labels::Union{Vector{String}, Nothing}
 end
 
-"""Legacy DDA analysis result."""
+"""DDA analysis result. `T` and `A` mirror the primary variant's raw partition."""
 struct DDAResult
     id::String
     file_path::String
     channels::Vector{String}
-    q_matrix::Matrix{Float64}
+    T::Matrix{Int64}
+    A::Matrix{Float64}
     variant_results::Vector{VariantResultData}
     window_params::WindowParameters
     delay_params::DelayParameters
@@ -704,7 +710,7 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
 
     return DDAResult(
         analysis_id, request.file_path, channel_labels,
-        primary.q_matrix, variant_results,
+        primary.T, primary.A, variant_results,
         request.window_params, request.delay_params,
         string(Dates.now())
     )
@@ -978,6 +984,24 @@ function _extract_raw_T(
     return [tp.window_start for tp in channels[1].timepoints]
 end
 
+function _extract_raw_T_bounds(
+    channels::Vector{StructuredChannelData},
+)::Matrix{Int64}
+    isempty(channels) && return Matrix{Int64}(undef, 0, 2)
+    n_windows = length(channels[1].timepoints)
+    T = Matrix{Int64}(undef, n_windows, 2)
+    for (window_idx, tp) in enumerate(channels[1].timepoints)
+        T[window_idx, 1] = _integer_output_index(tp.window_start)
+        T[window_idx, 2] = _integer_output_index(tp.window_end)
+    end
+    return T
+end
+
+function _integer_output_index(value::Real)::Int64
+    isinteger(value) || error("DDA output T values must be integer-valued, got $value")
+    return Int64(value)
+end
+
 function _compute_t_axis(
     T::AbstractVector{<:Real},
     derivative_points::Integer,
@@ -990,11 +1014,38 @@ function _compute_t_axis(
     ]
 end
 
+function _binary_payload_matrix(
+    coefficients::Array{Float64,3},
+    errors::Matrix{Float64},
+)::Matrix{Float64}
+    n_entities, n_windows, n_coeffs = size(coefficients)
+    size(errors) == (n_entities, n_windows) || error("error matrix shape must match coefficient entities and windows")
+
+    A = Matrix{Float64}(undef, n_windows, n_entities * (n_coeffs + 1))
+    n_windows == 0 && return A
+
+    col = 1
+    for entity_idx in 1:n_entities
+        for coeff_idx in 1:n_coeffs
+            for window_idx in 1:n_windows
+                A[window_idx, col] = coefficients[entity_idx, window_idx, coeff_idx]
+            end
+            col += 1
+        end
+        for window_idx in 1:n_windows
+            A[window_idx, col] = errors[entity_idx, window_idx]
+        end
+        col += 1
+    end
+
+    return A
+end
+
 # =============================================================================
 # LEGACY PARSING (kept for backward compat)
 # =============================================================================
 
-"""Parse output file extracting only the first coefficient (legacy)."""
+"""Parse output file extracting only the first coefficient (legacy helper)."""
 function parse_output_file(filepath::String, stride::Integer)::Matrix{Float64}
     lines = readlines(filepath)
     isempty(lines) && return Matrix{Float64}(undef, 0, 0)
@@ -1019,18 +1070,18 @@ function parse_output_file(filepath::String, stride::Integer)::Matrix{Float64}
     end
 
     num_channels = div(num_data_cols, stride)
-    q_matrix = Matrix{Float64}(undef, num_channels, num_timepoints)
+    first_coefficients = Matrix{Float64}(undef, num_channels, num_timepoints)
 
     for (t, row) in enumerate(data_rows)
         for ch in 1:num_channels
             col_idx = 3 + (ch - 1) * stride
             if col_idx <= length(row)
-                q_matrix[ch, t] = row[col_idx]
+                first_coefficients[ch, t] = row[col_idx]
             end
         end
     end
 
-    return q_matrix
+    return first_coefficients
 end
 
 function _channel_labels_for_variant(
@@ -1079,15 +1130,16 @@ function _pack_variant_result(
         end
     end
 
-    T = _extract_raw_T(channels)
+    raw_T = _extract_raw_T(channels)
+    T = _extract_raw_T_bounds(channels)
     t = _compute_t_axis(
-        T,
+        raw_T,
         request.model_params.derivative_points,
         request.tm,
         request.sampling_rate,
     )
     window_starts, window_ends = _result_window_bounds(request, variant_abbrev, channels)
-    q_matrix = n_coeffs > 0 ? coefficients[:, :, 1] : copy(errors)
+    A = _binary_payload_matrix(coefficients, errors)
 
     resolved_labels = channel_labels === nothing ? nothing : begin
         labels = copy(channel_labels)
@@ -1100,7 +1152,7 @@ function _pack_variant_result(
     return VariantResultData(
         variant_abbrev,
         variant.name,
-        q_matrix,
+        A,
         coefficients,
         errors,
         T,
