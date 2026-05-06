@@ -67,7 +67,6 @@ result = run_DDA(
     WL=2048,
     WS=1024,
     time_range=(0, 50000),
-    sampling_rate=(500, 1000),
     out_fn=nothing,
 )
 
