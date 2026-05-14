@@ -619,6 +619,8 @@ function build_dda_command(
     channels::Vector{Int}=[1, 2, 3],
     WL::Union{Int, Nothing}=2048,
     WS::Union{Int, Nothing}=1024,
+    WL_CT::Union{Int, Nothing}=nothing,
+    WS_CT::Union{Int, Nothing}=nothing,
     delays::Vector{Int}=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     start_sample::Union{Int, Nothing}=nothing,
     end_sample::Union{Int, Nothing}=nothing,
@@ -660,15 +662,8 @@ function build_dda_command(
 
     push!(args, "-MODEL", "1", "2", "10")
 
-    # Add CT params if any variant requires them
-    needs_ct_params = any(v -> begin
-        variant = get_variant_by_abbrev(v)
-        variant !== nothing && requires_ct_params(variant)
-    end, variants)
-
-    if needs_ct_params
-        push!(args, "-WL_CT", "2", "-WS_CT", "2")
-    end
+    WL_CT !== nothing && push!(args, "-WL_CT", string(WL_CT))
+    WS_CT !== nothing && push!(args, "-WS_CT", string(WS_CT))
 
     # Delay/TAU values
     push!(args, "-TAU")
@@ -897,6 +892,8 @@ end
                 output_file,
                 ["DE"];
                 channels=[1, 2, 3],
+                WL_CT=2,
+                WS_CT=2,
                 start_sample=0,
                 end_sample=6000,
             )

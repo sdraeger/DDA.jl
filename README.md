@@ -71,10 +71,10 @@ result = run_DDA(
 )
 
 println(size(result.T))  # first two raw integer binary columns
+println(size(result.t))  # derived time axis from result.T[:, 1]
 println(size(result.A))  # all remaining raw binary columns
-for vr in result.variant_results
-    println("$(vr.variant_id): T=$(size(vr.T)) A=$(size(vr.A))")
-end
+println(size(result.ST.A))
+println(size(result.SY.A))
 ```
 
 The structured variant is also available:
@@ -118,11 +118,13 @@ result = run_st(
 - `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
 - `WL` and `WS` map to the binary `-WL` and `-WS` arguments. Both default to `nothing`; unset values are not passed to the binary.
 - `-WLms` and `-WSms` are special binary flags and are intentionally not emitted by this wrapper.
-- `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `WL_ct::Int` maps to `-WL_CT`, `WS_ct::Int` maps to `-WS_CT`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified.
+- `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `WL_CT::Int` maps to `-WL_CT`, `WS_CT::Int` maps to `-WS_CT`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified.
+- `WL_CT` and `WS_CT` are channel-group parameters, not temporal window aliases. Pairwise CT uses `2`/`2`; omit them for the binary default or pass exactly `WL_CT=2, WS_CT=2`.
+- When `CT` is requested via `run_DDA`, the wrapper runs CT once per channel pair and merges the pair outputs into a single `CT` result.
 - `select` can be passed to `run_DDA(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
-- Low-level `run_DDA` results partition the raw binary output into `result.T::Matrix{Int64}` (the first two columns) and `result.A::Matrix{Float64}` (all remaining columns). High-level structured results expose raw window starts as `result.T` and the derived axis as `result.t`
+- Low-level `run_DDA` results expose each returned flavor as a property, for example `result.ST.A` and `result.CT.A`. Top-level `result.T`, `result.t`, and `result.A` mirror the first returned flavor for backward compatibility.
 - `TM` is used only for `result.t` and defaults to `max(delays)`
-- `sampling_rate` is optional. When provided, it maps to `-SR low high` unless you pass `(N, N)`, in which case it is metadata-only and used only for `result.t`
+- `sampling_rate` is optional and defaults to `nothing`. When omitted, no `-SR` flag is passed. A scalar maps to `-SR N`; a tuple maps to `-SR N1 N2`.
 - `out_fn` is `nothing` by default. In that case the wrapper uses a temporary output base for the call. If you pass `out_fn`, that exact value is sent to `-OUT_FN`
 
 ## Low-Level Helpers

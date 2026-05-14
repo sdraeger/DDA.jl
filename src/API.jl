@@ -353,7 +353,7 @@ Important keywords:
 - Passing a custom `model` also requires explicit `derivative_points` and `order`
 - `TM`: optional offset used only to compute `result.t`; defaults to `max(delays)`
 - `out_fn`: optional `-OUT_FN` base; defaults to a temporary path for the call
-- `sampling_rate`: optional values passed to `-SR`. If you pass `(N, N)`, it is only used for `result.t`
+- `sampling_rate`: optional value passed to `-SR`. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`; `nothing` emits no `-SR`
 """
 function _run_st_file(
     file_path::AbstractString,
@@ -467,8 +467,8 @@ function _run_ct_file(
             flavors=["CT"],
             WL=WL,
             WS=WS,
-            ct_window_length=ct_wl === nothing ? WL : ct_wl,
-            ct_window_step=ct_ws === nothing ? WS : ct_ws,
+            ct_window_length=ct_wl,
+            ct_window_step=ct_ws,
             delays=Int[delays...],
             model=model_terms,
             derivative_points=derivative_points_value,
@@ -491,8 +491,8 @@ function _run_ct_file(
         sfreq=sfreq,
         delays=delays,
         model=model_terms,
-        WL=ct_wl === nothing ? WL : ct_wl,
-        WS=ct_ws === nothing ? WS : ct_ws,
+        WL=ct_wl,
+        WS=ct_ws,
         derivative_points=derivative_points_value,
         TM=tm_value,
         order=order_value,
@@ -543,8 +543,8 @@ function _run_de_file(
         flavors=["DE"],
         WL=WL,
         WS=WS,
-        ct_window_length=ct_wl === nothing ? WL : ct_wl,
-        ct_window_step=ct_ws === nothing ? WS : ct_ws,
+        ct_window_length=ct_wl,
+        ct_window_step=ct_ws,
         delays=Int[delays...],
         model=model_terms,
         derivative_points=derivative_points_value,
@@ -562,8 +562,8 @@ function _run_de_file(
         sfreq=sfreq,
         delays=delays,
         model=model_terms,
-        WL=ct_wl === nothing ? WL : ct_wl,
-        WS=ct_ws === nothing ? WS : ct_ws,
+        WL=ct_wl,
+        WS=ct_ws,
         derivative_points=derivative_points_value,
         TM=tm_value,
         order=order_value,

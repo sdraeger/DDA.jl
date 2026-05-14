@@ -40,7 +40,7 @@ using DelayDifferentialAnalysis
             # CT needs more data and explicit CT window params
             data = randn(3, 20000)
             try
-                result = run_ct(data=data; sfreq=256.0, WL=200, WS=100)
+                result = run_ct(data=data; sfreq=256.0, WL=200, WS=100, ct_wl=2, ct_ws=2)
                 @test result isa CTResult
                 @test n_pairs(result) == 3  # C(3,2) = 3
                 @test n_windows(result) > 0
@@ -201,7 +201,7 @@ using DelayDifferentialAnalysis
             # DE needs more data
             data = randn(2, 20000)
             try
-                result = run_de(data=data; sfreq=256.0, WL=200, WS=100)
+                result = run_de(data=data; sfreq=256.0, WL=200, WS=100, ct_wl=2, ct_ws=2)
                 @test result isa DEResult
                 @test n_windows(result) > 0
                 @test length(result.ergodicity) == n_windows(result)

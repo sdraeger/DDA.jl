@@ -13,7 +13,7 @@ Single Timeseries analysis result.
 - `coefficients::Array{Float64,3}`: Shape `(n_channels, n_windows, n_coeffs)`.
 - `errors::Matrix{Float64}`: Shape `(n_channels, n_windows)`.
 - `T::Vector{Float64}`: Raw first column from the DDA output file.
-- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / max(sampling_rate)` when `sampling_rate` is provided, otherwise unscaled.
+- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / SR` when `sampling_rate` is provided, otherwise unscaled.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `channel_labels::Vector{String}`: Label per channel.
@@ -39,7 +39,7 @@ Cross-Timeseries analysis result.
 - `coefficients::Array{Float64,3}`: Shape `(n_pairs, n_windows, n_coeffs)`.
 - `errors::Matrix{Float64}`: Shape `(n_pairs, n_windows)`.
 - `T::Vector{Float64}`: Raw first column from the DDA output file.
-- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / max(sampling_rate)` when `sampling_rate` is provided, otherwise unscaled.
+- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / SR` when `sampling_rate` is provided, otherwise unscaled.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `pair_labels::Vector{String}`: Label per channel pair.
@@ -64,7 +64,7 @@ Dynamical Ergodicity analysis result.
 # Fields
 - `ergodicity::Vector{Float64}`: Ergodicity measure per window.
 - `T::Vector{Float64}`: Raw first column from the DDA output file.
-- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / max(sampling_rate)` when `sampling_rate` is provided, otherwise unscaled.
+- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / SR` when `sampling_rate` is provided, otherwise unscaled.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `params::Dict{String,Any}`: Analysis parameters used.

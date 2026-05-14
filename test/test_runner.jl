@@ -117,9 +117,9 @@ end
             @test request.model_params.nr_tau == 2
         end
 
-        @testset "Scalar sampling rate is normalized to a pair" begin
+        @testset "Scalar sampling rate is preserved" begin
             request = DDARequest("test.edf", [1], ["ST"]; sampling_rate=2048)
-            @test request.sampling_rate == (1024, 2048)
+            @test request.sampling_rate == 2048
         end
 
         @testset "Custom model requires explicit derivative config and order" begin
@@ -359,6 +359,80 @@ end
         @test result.channel_labels == labels
     end
 
+    @testset "DDAResult exposes primary derived t axis" begin
+        request = DDARequest(
+            "test.edf",
+            [1, 2],
+            ["ST"];
+            derivative_points=3,
+            TM=12,
+            sampling_rate=(500, 500),
+        )
+        T = Int64[
+            0 128
+            200 328
+        ]
+        t = (T[:, 1] .+ 1 .+ request.tm .+ request.model_params.derivative_points) ./ 500
+        A = [
+            1.0 2.0 0.1 7.0 8.0 0.4
+            3.0 4.0 0.2 9.0 10.0 0.5
+        ]
+        coefficients = Array{Float64,3}(undef, 2, 2, 2)
+        coefficients[1, 1, :] = [1.0, 2.0]
+        coefficients[1, 2, :] = [3.0, 4.0]
+        coefficients[2, 1, :] = [7.0, 8.0]
+        coefficients[2, 2, :] = [9.0, 10.0]
+        errors = [0.1 0.2; 0.4 0.5]
+        labels = ["Channel 1", "Channel 2"]
+        variant = VariantResultData(
+            "ST",
+            "Single Timeseries",
+            A,
+            coefficients,
+            errors,
+            T,
+            t,
+            [0, 200],
+            [128, 328],
+            labels,
+        )
+
+        result = DDAResult(
+            "analysis",
+            "test.edf",
+            labels,
+            T,
+            t,
+            A,
+            [variant],
+            request.window_params,
+            request.delay_params,
+            "2026-05-14T00:00:00",
+        )
+        legacy_result = DDAResult(
+            "analysis",
+            "test.edf",
+            labels,
+            T,
+            A,
+            [variant],
+            request.window_params,
+            request.delay_params,
+            "2026-05-14T00:00:00",
+        )
+
+        @test :t in fieldnames(typeof(result))
+        @test result.T == T
+        @test result.t == [0.032, 0.432]
+        @test result.t == t
+        @test legacy_result.t == t
+        @test result.ST === variant
+        @test result.ST.A == A
+        @test :ST in propertynames(result)
+        @test !(:CT in propertynames(result))
+        @test_throws ErrorException result.CT
+    end
+
     @testset "VariantResultData partitions raw binary output into T and A" begin
         channels = [
             StructuredChannelData(
@@ -449,10 +523,12 @@ end
                         @test size(result.T, 1) > 0
                         @test size(result.T, 2) == 2
                         @test eltype(result.T) == Int64
+                        @test length(result.t) == size(result.T, 1)
                         @test size(result.A, 1) > 0
                         @test size(result.A, 2) > 1
                         @test length(result.variant_results) == 1
                         @test result.variant_results[1].variant_id == "ST"
+                        @test result.t == result.variant_results[1].t
 
                         @info "ST result" size=size(result.A) windows=size(result.A, 1)
                     catch e
@@ -648,21 +724,38 @@ end
         end
     end
 
-    @testset "Sampling rate is only passed when explicitly requested" begin
+    @testset "Sampling rate is emitted as scalar, tuple, or omitted by default" begin
         fake_binary = tempname()
         touch(fake_binary)
 
         try
             runner = DDARunner(fake_binary)
-            request = DDARequest(
+            scalar_request = DDARequest(
+                "test.edf",
+                [1],
+                ["ST"];
+                sampling_rate=500,
+            )
+            scalar_argv = collect(DelayDifferentialAnalysis.Runner.build_command(runner, scalar_request, "/tmp/scalar_out"))
+            scalar_sr_index = findfirst(==("-SR"), scalar_argv)
+            @test scalar_sr_index !== nothing
+            @test scalar_argv[scalar_sr_index + 1] == "500"
+            @test scalar_sr_index + 1 == length(scalar_argv) ||
+                  scalar_argv[scalar_sr_index + 2] != "500"
+
+            tuple_request = DDARequest(
                 "test.edf",
                 [1],
                 ["ST"];
                 sampling_rate=(500, 500),
             )
-            cmd = DelayDifferentialAnalysis.Runner.build_command(runner, request, "/tmp/out")
-            argv = collect(cmd)
-            @test !("-SR" in argv)
+            tuple_argv = collect(DelayDifferentialAnalysis.Runner.build_command(runner, tuple_request, "/tmp/tuple_out"))
+            tuple_sr_index = findfirst(==("-SR"), tuple_argv)
+            @test tuple_sr_index !== nothing
+            @test tuple_argv[(tuple_sr_index + 1):(tuple_sr_index + 2)] == ["500", "500"]
+
+            @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; sampling_rate=500.5)
+            @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; sampling_rate=(500, 1000.5))
 
             default_request = DDARequest("test.edf", [1], ["ST"])
             default_cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
@@ -696,8 +789,8 @@ end
                 tau_file="/tmp/tau_values.txt",
                 tau2=[11, 12],
                 model2=[2, 5, 9],
-                WL_ct=33,
-                WS_ct=22,
+                WL_CT=33,
+                WS_CT=22,
                 no_norm=true,
                 WN_list=[4, 8, 12],
             )
@@ -756,6 +849,54 @@ end
             @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; tau2=7)
             @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; model2=[1, "bad"])
             @test_throws ErrorException DDARequest("test.edf", [1], ["ST"]; WN_list=3)
+            @test_throws MethodError DDARequest("test.edf", [1], ["ST"]; WL_ct=33)
+            @test_throws MethodError DDARequest("test.edf", [1], ["ST"]; WS_ct=22)
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "CT window flags are explicit and not inferred from WL WS" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            inferred_request = DDARequest(
+                "test.edf",
+                [1, 2],
+                ["DE"];
+                WL=200,
+                WS=100,
+            )
+            inferred_argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                inferred_request,
+                "/tmp/no_inferred_ct_out",
+            ))
+
+            @test "-WL" in inferred_argv
+            @test "-WS" in inferred_argv
+            @test !("-WL_CT" in inferred_argv)
+            @test !("-WS_CT" in inferred_argv)
+
+            explicit_request = DDARequest(
+                "test.edf",
+                [1, 2],
+                ["DE"];
+                WL=200,
+                WS=100,
+                ct_window_length=33,
+                ct_window_step=22,
+            )
+            explicit_argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                explicit_request,
+                "/tmp/explicit_ct_out",
+            ))
+
+            @test explicit_argv[findfirst(==("-WL_CT"), explicit_argv) + 1] == "33"
+            @test explicit_argv[findfirst(==("-WS_CT"), explicit_argv) + 1] == "22"
         finally
             rm(fake_binary, force=true)
         end
@@ -784,10 +925,103 @@ end
             @test request.variants == ["DE", "SY"]
             @test request.select == [0, 0, 0, 0, 1, 1]
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/select_out -CH_list 1 2 -SELECT 0 0 0 0 1 1 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 3 -order 4 -nr_tau 2 -WL_CT 200 -WS_CT 100"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/select_out -CH_list 1 2 -SELECT 0 0 0 0 1 1 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 3 -order 4 -nr_tau 2"
             end
         finally
             rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "run_DDA executes CT once per pair when mixed with ST" begin
+        if Sys.iswindows()
+            @info "Skipping CT pair execution test on Windows"
+        else
+            temp_dir = mktempdir()
+            fake_binary = joinpath(temp_dir, "fake_dda.sh")
+            input_file = joinpath(temp_dir, "input.txt")
+            output_base = joinpath(temp_dir, "mixed")
+
+            open(input_file, "w") do io
+                println(io, "1 2 3")
+                println(io, "4 5 6")
+            end
+
+            open(fake_binary, "w") do io
+                write(io, raw"""#!/usr/bin/env sh
+out=''
+st=0
+ct=0
+channels=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -OUT_FN) out="$2"; shift 2 ;;
+    -SELECT) st="$2"; ct="$3"; shift 7 ;;
+    -CH_list)
+      shift
+      channels=''
+      while [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; do
+        channels="$channels $1"
+        shift
+      done
+      ;;
+    *) shift ;;
+  esac
+done
+: > "$out.info"
+if [ "$st" = "1" ]; then
+  line='0 10'
+  for _ch in $channels; do line="$line 1.0 2.0 3.0 0.1"; done
+  printf '%s\n' "$line" > "${out}_ST"
+fi
+if [ "$ct" = "1" ]; then
+  printf '%s\n' '0 10 4.0 5.0 6.0 0.2' > "${out}_CT"
+fi
+""")
+            end
+            chmod(fake_binary, 0o755)
+
+            try
+                @test_throws ErrorException run_DDA(;
+                    file_path=input_file,
+                    channels=[1, 2, 3],
+                    flavors=["ST", "CT"],
+                    binary_path=fake_binary,
+                    WL=128,
+                    WS=100,
+                    WL_CT=128,
+                    WS_CT=100,
+                    out_fn=joinpath(temp_dir, "invalid_ct"),
+                )
+
+                result = run_DDA(;
+                    file_path=input_file,
+                    channels=[1, 2, 3],
+                    flavors=["ST", "CT"],
+                    binary_path=fake_binary,
+                    WL=128,
+                    WS=100,
+                    out_fn=output_base,
+                )
+
+                variant_ids = [vr.variant_id for vr in result.variant_results]
+                @test variant_ids == ["ST", "CT"]
+                @test result.ST === result.variant_results[1]
+                @test result.CT === result.variant_results[2]
+                @test result.ST.A == result.variant_results[1].A
+                @test result.CT.A == result.variant_results[2].A
+                @test :ST in propertynames(result)
+                @test :CT in propertynames(result)
+                @test !(:DE in propertynames(result))
+                ct_result = result.variant_results[2]
+                @test size(ct_result.A) == (1, 12)
+                @test ct_result.channel_labels == [
+                    "Channel 1-Channel 2",
+                    "Channel 1-Channel 3",
+                    "Channel 2-Channel 3",
+                ]
+            finally
+                rm(temp_dir; recursive=true, force=true)
+            end
         end
     end
 
@@ -837,5 +1071,32 @@ end
 
         @test window_starts == [0, 64]
         @test window_ends == [128, 192]
+
+        ct_request = DDARequest(
+            "test.edf",
+            [1, 2],
+            ["CT"];
+            WL=128,
+            WS=64,
+            ct_window_length=2,
+            ct_window_step=2,
+        )
+        ct_result = DelayDifferentialAnalysis.Runner._pack_variant_result(
+            "CT",
+            DelayDifferentialAnalysis.CT,
+            [
+                StructuredChannelData(
+                    1,
+                    [
+                        StructuredTimepoint(0.0, 144.0, [1.0, 2.0, 3.0], 0.1),
+                        StructuredTimepoint(100.0, 244.0, [4.0, 5.0, 6.0], 0.2),
+                    ],
+                ),
+            ],
+            ct_request,
+            ["Channel 1-Channel 2"],
+        )
+        @test ct_result.window_starts == [0, 100]
+        @test ct_result.window_ends == [144, 244]
     end
 end

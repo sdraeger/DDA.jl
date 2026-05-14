@@ -74,10 +74,12 @@ DDA analysis request parameters.
 - `ct_channel_pairs`: Channel pairs for CT (1-based)
 - `cd_channel_pairs`: Directed pairs for CD (1-based)
 - `select`: Optional explicit SELECT mask overriding `variants`
-- `sampling_rate`: Optional `-SR` pair `(low, high)`
+- `sampling_rate`: Optional `-SR` value. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`
 - `tm`: Optional `TM` value used only to compute the derived `t` axis
 - `out_fn`: Optional output base passed to `-OUT_FN`
 """
+const SamplingRate = Union{Int, Tuple{Int, Int}, Nothing}
+
 struct DDARequest
     file_path::String
     channels::Vector{Int}
@@ -90,7 +92,7 @@ struct DDARequest
     ct_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     cd_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     select::Union{Vector{Int}, Nothing}
-    sampling_rate::Union{Tuple{Int, Int}, Nothing}
+    sampling_rate::SamplingRate
     tm::Int
     out_fn::Union{String, Nothing}
     passthrough_args::Vector{String}
@@ -153,8 +155,8 @@ function _build_passthrough_args(;
     tau_file::Union{AbstractString, Nothing}=nothing,
     tau2=nothing,
     model2=nothing,
-    WL_ct::Union{Integer, Nothing}=nothing,
-    WS_ct::Union{Integer, Nothing}=nothing,
+    WL_CT::Union{Integer, Nothing}=nothing,
+    WS_CT::Union{Integer, Nothing}=nothing,
     no_norm::Bool=false,
     WN_list=nothing,
 )::Vector{String}
@@ -166,8 +168,8 @@ function _build_passthrough_args(;
     _append_passthrough!(args, "-TAU_file", tau_file)
     _append_passthrough!(args, "-TAU2", normalized_tau2)
     _append_passthrough!(args, "-MODEL2", normalized_model2)
-    _append_passthrough!(args, "-WL_CT", WL_ct)
-    _append_passthrough!(args, "-WS_CT", WS_ct)
+    _append_passthrough!(args, "-WL_CT", WL_CT)
+    _append_passthrough!(args, "-WS_CT", WS_CT)
     no_norm && push!(args, "-NoNorm")
     _append_passthrough!(args, "-WN_list", normalized_WN_list)
     return args
@@ -244,24 +246,27 @@ function _normalize_sampling_rate(
         Tuple{Real, Real},
         AbstractVector{<:Real},
     },
-)::Union{Tuple{Int, Int}, Nothing}
+)::SamplingRate
     sampling_rate === nothing && return nothing
 
     if sampling_rate isa Real
-        upper = Int(sampling_rate)
-        upper > 0 || error("Sampling rate must be positive")
-        return (Int(floor(upper / 2)), upper)
+        return _normalize_sampling_rate_value("Sampling rate", sampling_rate)
     end
 
     values = sampling_rate isa Tuple ? collect(sampling_rate) : collect(sampling_rate)
     length(values) == 2 || error("Sampling rate must be `nothing`, a scalar, or exactly two numbers")
 
-    low = Int(values[1])
-    high = Int(values[2])
-    low > 0 || error("Sampling rate lower bound must be positive")
-    high > 0 || error("Sampling rate upper bound must be positive")
-    low <= high || error("Sampling rate lower bound must be <= upper bound")
-    return (low, high)
+    first_rate = _normalize_sampling_rate_value("First sampling rate", values[1])
+    second_rate = _normalize_sampling_rate_value("Second sampling rate", values[2])
+    return (first_rate, second_rate)
+end
+
+function _normalize_sampling_rate_value(name::String, value::Real)::Int
+    isfinite(Float64(value)) || error("$name must be finite")
+    (value isa Integer || isinteger(value)) || error("$name must be integer-valued")
+    rate = Int(value)
+    rate > 0 || error("$name must be positive")
+    return rate
 end
 
 function _resolve_tm(
@@ -277,17 +282,17 @@ function _resolve_tm(
 end
 
 function _sampling_rate_scale(
-    sampling_rate::Union{Tuple{Int, Int}, Nothing},
+    sampling_rate::SamplingRate,
 )::Float64
     sampling_rate === nothing && return 1.0
+    sampling_rate isa Integer && return Float64(sampling_rate)
     return Float64(max(sampling_rate[1], sampling_rate[2]))
 end
 
-function _should_pass_sampling_rate(
-    sampling_rate::Union{Tuple{Int, Int}, Nothing},
-)::Bool
-    sampling_rate === nothing && return false
-    return sampling_rate[1] != sampling_rate[2]
+function _sampling_rate_args(sampling_rate::SamplingRate)::Vector{String}
+    sampling_rate === nothing && return String[]
+    sampling_rate isa Integer && return [string(sampling_rate)]
+    return [string(sampling_rate[1]), string(sampling_rate[2])]
 end
 
 function _fallback_channel_label(channel::Integer, fallback_prefix::String)::String
@@ -403,8 +408,8 @@ Create a DDA analysis request.
 # Keyword Arguments
 - `WL`: Optional analysis window length passed as `-WL`
 - `WS`: Optional window step size passed as `-WS`
-- `ct_window_length`: CT-specific window length
-- `ct_window_step`: CT-specific window step
+- `ct_window_length`: CT-specific window length passed as `-WL_CT` when set
+- `ct_window_step`: CT-specific window step passed as `-WS_CT` when set
 - `delays`: Delay (tau) values, default `$(DEFAULT_DELAYS)`
 - `model`: Optional custom model term indices passed to `-MODEL`
 - `model_encoding`: Backward-compatible alias for `model`
@@ -416,10 +421,10 @@ Create a DDA analysis request.
 - `ct_pairs`: CT channel pairs (1-based)
 - `cd_pairs`: CD directed pairs (1-based)
 - `select`: Optional explicit `-SELECT` mask. When passed, it overrides `variants`
-- `sampling_rate`: Optional `-SR` pair. Defaults to `$(DDADefaults.SAMPLING_RATE)`
+- `sampling_rate`: Optional `-SR` value. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`. Defaults to `$(DDADefaults.SAMPLING_RATE)`
 - `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
 - `out_fn`: Optional output base passed to `-OUT_FN`
-- `tau_file`, `tau2`, `model2`, `WL_ct`, `WS_ct`, `no_norm`, `WN_list`: Raw binary passthrough arguments
+- `tau_file`, `tau2`, `model2`, `WL_CT`, `WS_CT`, `no_norm`, `WN_list`: Raw binary passthrough arguments
 """
 function DDARequest(
     file_path::AbstractString,
@@ -451,8 +456,8 @@ function DDARequest(
     tau_file::Union{AbstractString, Nothing}=nothing,
     tau2=nothing,
     model2=nothing,
-    WL_ct::Union{Integer, Nothing}=nothing,
-    WS_ct::Union{Integer, Nothing}=nothing,
+    WL_CT::Union{Integer, Nothing}=nothing,
+    WS_CT::Union{Integer, Nothing}=nothing,
     no_norm::Bool=false,
     WN_list=nothing,
 )
@@ -480,8 +485,8 @@ function DDARequest(
         tau_file=tau_file,
         tau2=tau2,
         model2=model2,
-        WL_ct=WL_ct,
-        WS_ct=WS_ct,
+        WL_CT=WL_CT,
+        WS_CT=WS_CT,
         no_norm=no_norm,
         WN_list=WN_list,
     )
@@ -545,17 +550,80 @@ struct VariantResultData
     channel_labels::Union{Vector{String}, Nothing}
 end
 
-"""DDA analysis result. `T` and `A` mirror the primary variant's raw partition."""
+"""
+DDA analysis result.
+
+Returned flavors are exposed as dynamic properties, for example `result.ST`
+and `result.CT`. Top-level `T`, `t`, and `A` mirror the primary variant for
+backward compatibility; prefer `result.<flavor>.A` for flavor-specific output.
+"""
 struct DDAResult
     id::String
     file_path::String
     channels::Vector{String}
     T::Matrix{Int64}
+    t::Vector{Float64}
     A::Matrix{Float64}
     variant_results::Vector{VariantResultData}
     window_params::WindowParameters
     delay_params::DelayParameters
     created_at::String
+end
+
+function DDAResult(
+    id::String,
+    file_path::String,
+    channels::Vector{String},
+    T::Matrix{Int64},
+    A::Matrix{Float64},
+    variant_results::Vector{VariantResultData},
+    window_params::WindowParameters,
+    delay_params::DelayParameters,
+    created_at::String,
+)
+    t = isempty(variant_results) ? Float64[] : first(variant_results).t
+    return DDAResult(
+        id,
+        file_path,
+        channels,
+        T,
+        t,
+        A,
+        variant_results,
+        window_params,
+        delay_params,
+        created_at,
+    )
+end
+
+const DDA_RESULT_FLAVOR_PROPERTIES = (:ST, :CT, :CD, :DE, :SY)
+
+function _variant_result_property(result::DDAResult, name::Symbol)::Union{VariantResultData, Nothing}
+    for variant in getfield(result, :variant_results)
+        Symbol(getfield(variant, :variant_id)) == name && return variant
+    end
+    return nothing
+end
+
+function Base.getproperty(result::DDAResult, name::Symbol)
+    name in fieldnames(typeof(result)) && return getfield(result, name)
+    if name in DDA_RESULT_FLAVOR_PROPERTIES
+        variant = _variant_result_property(result, name)
+        variant !== nothing && return variant
+        error("DDAResult does not contain flavor `$name`")
+    end
+    return getfield(result, name)
+end
+
+function Base.propertynames(result::DDAResult, private::Bool=false)
+    base_names = collect(fieldnames(typeof(result)))
+    for variant in getfield(result, :variant_results)
+        name = Symbol(getfield(variant, :variant_id))
+        if !(name in base_names)
+            push!(base_names, name)
+        end
+    end
+    return Tuple(base_names)
 end
 
 # =============================================================================
@@ -610,6 +678,202 @@ end
 # STRUCTURED ANALYSIS (new path — returns per-variant structured data)
 # =============================================================================
 
+function _request_for_variants(
+    request::DDARequest,
+    channels::Vector{Int},
+    variants::Vector{String},
+)::DDARequest
+    return DDARequest(
+        request.file_path,
+        channels,
+        variants,
+        request.window_params,
+        request.delay_params,
+        request.model_params,
+        request.model_terms,
+        request.time_range,
+        request.ct_channel_pairs,
+        request.cd_channel_pairs,
+        nothing,
+        request.sampling_rate,
+        request.tm,
+        request.out_fn,
+        request.passthrough_args,
+    )
+end
+
+function _run_command(runner::DDARunner, request::DDARequest, output_base::String)
+    cmd = build_command(runner, request, output_base)
+    try
+        run(cmd)
+    catch e
+        error("DDA execution failed: $e")
+    end
+    return nothing
+end
+
+function _parse_structured_outputs(
+    request::DDARequest,
+    output_base::String,
+    variants::Vector{String},
+)::Dict{String, Vector{StructuredChannelData}}
+    results = Dict{String, Vector{StructuredChannelData}}()
+    for variant_abbrev in variants
+        variant = get_variant_by_abbrev(variant_abbrev)
+        variant === nothing && continue
+
+        actual_file = _find_output_file(output_base, variant, variant_abbrev)
+        actual_file === nothing && continue
+
+        channels = parse_output_file_structured(actual_file, variant.stride)
+        if !isempty(channels)
+            results[variant_abbrev] = channels
+        end
+    end
+    return results
+end
+
+function _non_ct_variants(request::DDARequest)::Vector{String}
+    return String[v for v in request.variants if v != "CT"]
+end
+
+function _has_ct_variant(request::DDARequest)::Bool
+    return any(==("CT"), request.variants)
+end
+
+function _ct_pairs(request::DDARequest)::Vector{Tuple{Int, Int}}
+    if request.ct_channel_pairs !== nothing && !isempty(request.ct_channel_pairs)
+        return copy(request.ct_channel_pairs)
+    end
+
+    pairs = Tuple{Int, Int}[]
+    for i in 1:length(request.channels), j in (i + 1):length(request.channels)
+        push!(pairs, (request.channels[i], request.channels[j]))
+    end
+    isempty(pairs) && error("CT analysis requires at least two channels or an explicit `ct_pairs` list")
+    return pairs
+end
+
+function _passthrough_int_value(args::Vector{String}, flag::String)::Union{Int, Nothing}
+    idx = findfirst(==(flag), args)
+    idx === nothing && return nothing
+    idx < length(args) || error("`$flag` requires an integer value")
+    value = tryparse(Int, args[idx + 1])
+    value === nothing && error("`$flag` requires an integer value")
+    return value
+end
+
+function _merged_ct_value(
+    name::String,
+    window_value::Union{Int, Nothing},
+    passthrough_value::Union{Int, Nothing},
+)::Union{Int, Nothing}
+    if window_value !== nothing && passthrough_value !== nothing && window_value != passthrough_value
+        error("Conflicting `$name` values: $window_value and $passthrough_value")
+    end
+    return window_value !== nothing ? window_value : passthrough_value
+end
+
+function _validate_pairwise_ct_window_args(request::DDARequest)
+    wl_ct = _merged_ct_value(
+        "WL_CT",
+        request.window_params.ct_window_length,
+        _passthrough_int_value(request.passthrough_args, "-WL_CT"),
+    )
+    ws_ct = _merged_ct_value(
+        "WS_CT",
+        request.window_params.ct_window_step,
+        _passthrough_int_value(request.passthrough_args, "-WS_CT"),
+    )
+
+    if (wl_ct === nothing) != (ws_ct === nothing)
+        error("Pairwise CT requires both `WL_CT` and `WS_CT`, or neither")
+    end
+    if wl_ct !== nothing && (wl_ct != 2 || ws_ct != 2)
+        error(
+            "Pairwise CT uses channel-group parameters `WL_CT=2, WS_CT=2`; " *
+            "omit them or pass exactly 2/2. Got WL_CT=$wl_ct, WS_CT=$ws_ct.",
+        )
+    end
+    return nothing
+end
+
+function _label_map_for_request(request::DDARequest)::Dict{Int, String}
+    labels = _resolve_requested_channel_labels(
+        request.file_path,
+        request.channels;
+        fallback_prefix="Channel ",
+    )
+    return Dict(channel => labels[idx] for (idx, channel) in enumerate(request.channels))
+end
+
+function _ct_pair_label(pair::Tuple{Int, Int}, labels::Dict{Int, String})::String
+    left = get(labels, pair[1], _fallback_channel_label(pair[1], "Channel "))
+    right = get(labels, pair[2], _fallback_channel_label(pair[2], "Channel "))
+    return "$left-$right"
+end
+
+function _format_output_number(value::Real)::String
+    return isinteger(value) ? string(Int(value)) : string(value)
+end
+
+function _write_structured_channels(
+    filepath::String,
+    channels::Vector{StructuredChannelData},
+)
+    isempty(channels) && return nothing
+    n_windows = length(channels[1].timepoints)
+    open(filepath, "w") do io
+        for window_idx in 1:n_windows
+            reference = channels[1].timepoints[window_idx]
+            row = String[
+                _format_output_number(reference.window_start),
+                _format_output_number(reference.window_end),
+            ]
+            for channel_data in channels
+                length(channel_data.timepoints) == n_windows || error("CT pair outputs have inconsistent window counts")
+                tp = channel_data.timepoints[window_idx]
+                append!(row, string.(tp.coefficients))
+                push!(row, string(tp.error))
+            end
+            println(io, join(row, " "))
+        end
+    end
+    return nothing
+end
+
+function _run_ct_pairs(
+    runner::DDARunner,
+    request::DDARequest,
+    output_base::String,
+)::Tuple{Vector{StructuredChannelData}, Vector{String}}
+    _validate_pairwise_ct_window_args(request)
+    pair_data = StructuredChannelData[]
+    pair_labels = String[]
+    labels = _label_map_for_request(request)
+
+    for (pair_idx, pair) in enumerate(_ct_pairs(request))
+        pair_request = _request_for_variants(request, [pair[1], pair[2]], ["CT"])
+        pair_output_base = "$(output_base)_ct_pair_$(pair_idx)"
+        try
+            _run_command(runner, pair_request, pair_output_base)
+            actual_file = _find_output_file(pair_output_base, CT, "CT")
+            actual_file === nothing && error("No CT output file produced for channel pair $(pair)")
+            channels = parse_output_file_structured(actual_file, CT.stride)
+            isempty(channels) && error("CT output contained no coefficient data for channel pair $(pair)")
+            push!(pair_data, channels[1])
+            push!(pair_labels, _ct_pair_label(pair, labels))
+        finally
+            cleanup_temp_files(pair_output_base, ["CT"])
+            info_file = "$(pair_output_base).info"
+            isfile(info_file) && rm(info_file, force=true)
+        end
+    end
+
+    _write_structured_channels("$(output_base)$(CT.output_suffix)", pair_data)
+    return pair_data, pair_labels
+end
+
 """Internal structured execution helper used by the keyword-only public API."""
 function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{String, Vector{StructuredChannelData}}
     if !isfile(request.file_path)
@@ -617,27 +881,18 @@ function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{
     end
 
     output_base, cleanup_output = _resolve_output_base(request)
-    cmd = build_command(runner, request, output_base)
-
     results = Dict{String, Vector{StructuredChannelData}}()
     try
-        try
-            run(cmd)
-        catch e
-            error("DDA execution failed: $e")
+        variants = _non_ct_variants(request)
+        if !isempty(variants)
+            non_ct_request = _request_for_variants(request, request.channels, variants)
+            _run_command(runner, non_ct_request, output_base)
+            merge!(results, _parse_structured_outputs(non_ct_request, output_base, variants))
         end
 
-        for variant_abbrev in request.variants
-            variant = get_variant_by_abbrev(variant_abbrev)
-            variant === nothing && continue
-
-            actual_file = _find_output_file(output_base, variant, variant_abbrev)
-            actual_file === nothing && continue
-
-            channels = parse_output_file_structured(actual_file, variant.stride)
-            if !isempty(channels)
-                results[variant_abbrev] = channels
-            end
+        if _has_ct_variant(request)
+            ct_channels, _ = _run_ct_pairs(runner, request, output_base)
+            results["CT"] = ct_channels
         end
         return results
     finally
@@ -683,19 +938,36 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
 
     analysis_id = string(UUIDs.uuid4())
     output_base, cleanup_output = _resolve_output_base(request)
-    cmd = build_command(runner, request, output_base)
-    variant_results = VariantResultData[]
 
+    variant_results_by_id = Dict{String, VariantResultData}()
     try
-        try
-            run(cmd)
-        catch e
-            error("DDA execution failed: $e")
+        variants = _non_ct_variants(request)
+        if !isempty(variants)
+            non_ct_request = _request_for_variants(request, request.channels, variants)
+            _run_command(runner, non_ct_request, output_base)
+            for result in parse_results_legacy(non_ct_request, output_base)
+                variant_results_by_id[result.variant_id] = result
+            end
         end
-        variant_results = parse_results_legacy(request, output_base)
+
+        if _has_ct_variant(request)
+            ct_channels, ct_labels = _run_ct_pairs(runner, request, output_base)
+            variant_results_by_id["CT"] = _pack_variant_result(
+                "CT",
+                CT,
+                ct_channels,
+                request,
+                ct_labels,
+            )
+        end
     finally
         cleanup_output && cleanup_temp_files(output_base, request.variants)
     end
+
+    variant_results = VariantResultData[
+        variant_results_by_id[variant_id] for variant_id in request.variants
+        if haskey(variant_results_by_id, variant_id)
+    ]
 
     if isempty(variant_results)
         error("No data extracted from DDA output")
@@ -710,7 +982,7 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
 
     return DDAResult(
         analysis_id, request.file_path, channel_labels,
-        primary.T, primary.A, variant_results,
+        primary.T, primary.t, primary.A, variant_results,
         request.window_params, request.delay_params,
         string(Dates.now())
     )
@@ -799,19 +1071,11 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     push!(args, "-order", string(mp.order))
     push!(args, "-nr_tau", string(mp.nr_tau))
 
-    # CT window parameters if needed
-    needs_ct = any(v -> begin
-        variant = get_variant_by_abbrev(v)
-        variant !== nothing && requires_ct_params(variant)
-    end, request.variants)
-
-    if needs_ct || wp.ct_window_length !== nothing || wp.ct_window_step !== nothing
-        ct_wl = wp.ct_window_length === nothing ? wp.WL : wp.ct_window_length
-        ct_ws = wp.ct_window_step === nothing ? wp.WS : wp.ct_window_step
-        if ct_wl !== nothing && ct_ws !== nothing
-            push!(args, "-WL_CT", string(ct_wl))
-            push!(args, "-WS_CT", string(ct_ws))
-        end
+    if wp.ct_window_length !== nothing
+        push!(args, "-WL_CT", string(wp.ct_window_length))
+    end
+    if wp.ct_window_step !== nothing
+        push!(args, "-WS_CT", string(wp.ct_window_step))
     end
 
     # Time bounds
@@ -820,9 +1084,10 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
         push!(args, "-StartEnd", string(Int(tr.start)), string(Int(tr.stop)))
     end
 
-    # Sampling rate pair passed directly to -SR unless it is metadata-only `(N, N)`.
-    if _should_pass_sampling_rate(request.sampling_rate)
-        push!(args, "-SR", string(request.sampling_rate[1]), string(request.sampling_rate[2]))
+    sampling_rate_args = _sampling_rate_args(request.sampling_rate)
+    if !isempty(sampling_rate_args)
+        push!(args, "-SR")
+        append!(args, sampling_rate_args)
     end
 
     append!(args, request.passthrough_args)
@@ -915,9 +1180,7 @@ function _variant_window_spec(
     wp = request.window_params
     variant = get_variant_by_abbrev(String(variant_abbrev))
     if variant !== nothing && requires_ct_params(variant)
-        WL = wp.ct_window_length === nothing ? wp.WL : wp.ct_window_length
-        WS = wp.ct_window_step === nothing ? wp.WS : wp.ct_window_step
-        return WL === nothing || WS === nothing ? nothing : (WL, WS)
+        return nothing
     end
     return wp.WL === nothing || wp.WS === nothing ? nothing : (wp.WL, wp.WS)
 end
@@ -1006,7 +1269,7 @@ function _compute_t_axis(
     T::AbstractVector{<:Real},
     derivative_points::Integer,
     tm::Integer,
-    sampling_rate::Union{Tuple{Int, Int}, Nothing},
+    sampling_rate::SamplingRate,
 )::Vector{Float64}
     denominator = _sampling_rate_scale(sampling_rate)
     return [
