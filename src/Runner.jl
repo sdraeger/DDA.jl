@@ -11,6 +11,7 @@ import UUIDs
 import Dates
 using ..Variants
 using ..DDADefaults
+using ..ModelEncoding: model_matrix_to_encoding
 
 export DDARequest, DDAResult, VariantResultData
 export DDARunner, run_DDA
@@ -79,6 +80,8 @@ DDA analysis request parameters.
 - `out_fn`: Optional output base passed to `-OUT_FN`
 """
 const SamplingRate = Union{Int, Tuple{Int, Int}, Nothing}
+const ModelSpec = Union{AbstractVector{<:Integer}, AbstractMatrix{<:Integer}}
+const OptionalModelSpec = Union{ModelSpec, Nothing}
 
 struct DDARequest
     file_path::String
@@ -223,8 +226,8 @@ function _resolve_derivative_points(
 end
 
 function _validate_custom_model_request(
-    model::Union{AbstractVector{<:Integer}, Nothing},
-    model_encoding::Union{AbstractVector{<:Integer}, Nothing},
+    model::OptionalModelSpec,
+    model_encoding::OptionalModelSpec,
     derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
     order::Union{Int, Nothing},
@@ -237,6 +240,23 @@ function _validate_custom_model_request(
         )
     end
     return nothing
+end
+
+function _resolve_model_terms(
+    model::OptionalModelSpec,
+    model_encoding::OptionalModelSpec,
+    nr_tau::Int,
+    order::Int,
+)::Vector{Int}
+    selected = something(model_encoding, model, copy(DDADefaults.MODEL_PARAMS))
+    if selected isa AbstractMatrix
+        return model_matrix_to_encoding(
+            selected;
+            num_delays=nr_tau,
+            polynomial_order=order,
+        )
+    end
+    return Int[selected...]
 end
 
 function _normalize_sampling_rate(
@@ -411,7 +431,7 @@ Create a DDA analysis request.
 - `ct_window_length`: CT-specific window length passed as `-WL_CT` when set
 - `ct_window_step`: CT-specific window step passed as `-WS_CT` when set
 - `delays`: Delay (tau) values, default `$(DEFAULT_DELAYS)`
-- `model`: Optional custom model term indices passed to `-MODEL`
+- `model`: Optional custom model. A vector is passed as `-MODEL` indices; a matrix is converted row-wise from monomial encodings to indices.
 - `model_encoding`: Backward-compatible alias for `model`
 - `derivative_points::Int=$(DDADefaults.DERIVATIVE_POINTS)`: Value passed to binary `-dm`
 - `dm`: Legacy alias for `derivative_points`
@@ -435,8 +455,8 @@ function DDARequest(
     ct_window_length::Union{Int, Nothing}=nothing,
     ct_window_step::Union{Int, Nothing}=nothing,
     delays::Vector{Int}=collect(DEFAULT_DELAYS),
-    model::Union{Vector{Int}, Nothing}=nothing,
-    model_encoding::Union{Vector{Int}, Nothing}=nothing,
+    model::OptionalModelSpec=nothing,
+    model_encoding::OptionalModelSpec=nothing,
     derivative_points::Union{Int, Nothing}=nothing,
     dm::Union{Int, Nothing}=nothing,
     order::Union{Int, Nothing}=nothing,
@@ -478,7 +498,7 @@ function DDARequest(
         something(order, DDADefaults.POLYNOMIAL_ORDER),
         nr_tau,
     )
-    terms = Int[something(model_encoding, model, copy(DDADefaults.MODEL_PARAMS))...]
+    terms = _resolve_model_terms(model, model_encoding, nr_tau, mp.order)
     tr = time_range === nothing ? nothing : TimeRange(Float64(time_range[1]), Float64(time_range[2]))
     normalized_out_fn = out_fn === nothing ? nothing : expanduser(String(out_fn))
     passthrough_args = _build_passthrough_args(;

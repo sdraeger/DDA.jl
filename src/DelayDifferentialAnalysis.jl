@@ -89,6 +89,12 @@ include("Defaults.jl")
 using .DDADefaults
 using .DDAFlags
 
+# --- Model encoding ---
+include("ModelEncoding.jl")
+using .ModelEncoding
+export generate_monomials, model_matrix_to_encoding, monomial_to_text, monomial_to_latex
+export decode_model_encoding, visualize_model_space
+
 # --- Result types ---
 include("Results.jl")
 using .Results
@@ -107,12 +113,6 @@ export run_analysis_structured, parse_output_file_structured
 include("API.jl")
 using .API
 export run_st, run_ct, run_de
-
-# --- Model encoding ---
-include("ModelEncoding.jl")
-using .ModelEncoding
-export generate_monomials, monomial_to_text, monomial_to_latex
-export decode_model_encoding, visualize_model_space
 
 # --- Batch processing ---
 include("Batch.jl")

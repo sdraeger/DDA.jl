@@ -68,10 +68,11 @@ function _pair_channel_sets(channels::Vector{Int})::Vector{Vector{Int}}
 end
 
 function _resolve_model_configuration(
-    model::Union{AbstractVector{<:Integer}, Nothing},
+    model::Runner.OptionalModelSpec,
     derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
     order::Union{Int, Nothing},
+    nr_tau::Int,
 )::Tuple{Vector{Int}, Int, Int}
     Runner._validate_custom_model_request(
         model,
@@ -80,12 +81,17 @@ function _resolve_model_configuration(
         dm,
         order,
     )
-    resolved_model = Int[something(model, copy(DDADefaults.MODEL_PARAMS))...]
     resolved_derivative_points = Runner._resolve_derivative_points(
         derivative_points,
         dm,
     )
     resolved_order = something(order, DDADefaults.POLYNOMIAL_ORDER)
+    resolved_model = Runner._resolve_model_terms(
+        model,
+        nothing,
+        nr_tau,
+        resolved_order,
+    )
     return resolved_model, resolved_derivative_points, resolved_order
 end
 
@@ -348,7 +354,7 @@ Run single-timeseries DDA directly on an EDF or ASCII file using 1-based channel
 
 Important keywords:
 - `binary_path`: resolve the DDA binary without relying on environment variables
-- `model`: optional custom values passed to `-MODEL`
+- `model`: optional custom model passed to `-MODEL` as indices, or as matrix rows mapped to indices
 - `derivative_points`: preferred name for binary `-dm`
 - Passing a custom `model` also requires explicit `derivative_points` and `order`
 - `TM`: optional offset used only to compute `result.t`; defaults to `max(delays)`
@@ -360,7 +366,7 @@ function _run_st_file(
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Union{Vector{Int}, Nothing}=nothing,
+    model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
     WS::Union{Int, Nothing}=DDADefaults.WS,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
@@ -380,6 +386,7 @@ function _run_st_file(
         derivative_points,
         dm,
         order,
+        nr_tau,
     )
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
     tm_value = Runner._resolve_tm(Int[delays...], TM)
@@ -430,7 +437,7 @@ function _run_ct_file(
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Union{Vector{Int}, Nothing}=nothing,
+    model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
     WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,
@@ -455,6 +462,7 @@ function _run_ct_file(
         derivative_points,
         dm,
         order,
+        nr_tau,
     )
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
     tm_value = Runner._resolve_tm(Int[delays...], TM)
@@ -513,7 +521,7 @@ function _run_de_file(
     channels::AbstractVector{<:Integer};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Union{Vector{Int}, Nothing}=nothing,
+    model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
     WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,
@@ -533,6 +541,7 @@ function _run_de_file(
         derivative_points,
         dm,
         order,
+        nr_tau,
     )
     sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
     tm_value = Runner._resolve_tm(Int[delays...], TM)
@@ -587,7 +596,7 @@ function _run_st_matrix(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Union{Vector{Int}, Nothing}=nothing,
+    model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
     WS::Union{Int, Nothing}=DDADefaults.WS,
     channel_labels::Union{Vector{String}, Nothing}=nothing,
@@ -635,7 +644,7 @@ function _run_ct_matrix(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Union{Vector{Int}, Nothing}=nothing,
+    model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
     WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,
@@ -687,7 +696,7 @@ function _run_de_matrix(
     data::AbstractMatrix{<:Real};
     sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
-    model::Union{Vector{Int}, Nothing}=nothing,
+    model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
     WS::Union{Int, Nothing}=DDADefaults.WS,
     ct_wl::Union{Int, Nothing}=nothing,

@@ -7,7 +7,7 @@ module ModelEncoding
 
 using Printf
 
-export generate_monomials, monomial_to_text, monomial_to_latex
+export generate_monomials, model_matrix_to_encoding, monomial_to_text, monomial_to_latex
 export decode_model_encoding, visualize_model_space
 
 """
@@ -31,6 +31,57 @@ function generate_monomials(num_delays::Int, polynomial_order::Int)::Vector{Vect
     # Remove the all-zeros tuple
     filter!(t -> any(x -> x != 0, t), results)
     return results
+end
+
+"""
+    model_matrix_to_encoding(model_matrix; num_delays, polynomial_order) -> Vector{Int}
+
+Map a matrix of monomial rows to the 1-based `-MODEL` indices expected by the
+DDA binary. Each row is matched against `generate_monomials(num_delays,
+polynomial_order)` in row order.
+
+# Examples
+```julia
+model_matrix_to_encoding([0 0 1; 0 0 2; 1 1 1]; num_delays=2, polynomial_order=3)
+# [1, 2, 6]
+```
+"""
+function model_matrix_to_encoding(
+    model_matrix::AbstractMatrix{<:Integer};
+    num_delays::Int,
+    polynomial_order::Int,
+)::Vector{Int}
+    num_delays > 0 || error("num_delays must be positive, got $num_delays")
+    polynomial_order > 0 || error("polynomial_order must be positive, got $polynomial_order")
+
+    n_rows, n_cols = size(model_matrix)
+    n_rows > 0 || error("Model matrix must contain at least one row")
+    n_cols == polynomial_order || error(
+        "Model matrix has $n_cols columns, but polynomial_order=$polynomial_order requires $polynomial_order columns",
+    )
+
+    monomials = generate_monomials(num_delays, polynomial_order)
+    monomial_index = Dict(Tuple(monomial) => idx for (idx, monomial) in enumerate(monomials))
+
+    encoding = Vector{Int}(undef, n_rows)
+    for row_idx in 1:n_rows
+        row = Int[model_matrix[row_idx, col_idx] for col_idx in 1:n_cols]
+        any(value -> value < 0 || value > num_delays, row) && error(
+            "Model matrix row $row_idx has entries outside 0:$num_delays: $(row)",
+        )
+        any(value -> value != 0, row) || error(
+            "Model matrix row $row_idx is all zeros, which is not a valid model term",
+        )
+        issorted(row) || error(
+            "Model matrix row $row_idx must be non-decreasing to match the DDA monomial table: $(row)",
+        )
+        key = Tuple(row)
+        haskey(monomial_index, key) || error(
+            "Model matrix row $row_idx does not match the generated monomial table: $(row)",
+        )
+        encoding[row_idx] = monomial_index[key]
+    end
+    return encoding
 end
 
 function _non_decreasing_tuples!(

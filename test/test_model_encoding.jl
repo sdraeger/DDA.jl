@@ -64,6 +64,27 @@ using DelayDifferentialAnalysis
         @test_throws ErrorException decode_model_encoding([999]; num_delays=2, polynomial_order=2)
     end
 
+    @testset "model matrix rows map to MODEL indices" begin
+        pp = [
+            0 0 1
+            0 0 2
+            1 1 1
+        ]
+        @test model_matrix_to_encoding(pp; num_delays=2, polynomial_order=3) == [1, 2, 6]
+
+        order4 = [
+            0 0 0 1
+            0 0 0 2
+            1 1 1 1
+        ]
+        @test model_matrix_to_encoding(order4; num_delays=2, polynomial_order=4) == [1, 2, 10]
+
+        @test_throws ErrorException model_matrix_to_encoding(pp; num_delays=2, polynomial_order=4)
+        @test_throws ErrorException model_matrix_to_encoding([0 2 1]; num_delays=2, polynomial_order=3)
+        @test_throws ErrorException model_matrix_to_encoding([0 0 3]; num_delays=2, polynomial_order=3)
+        @test_throws ErrorException model_matrix_to_encoding([0 0 0]; num_delays=2, polynomial_order=3)
+    end
+
     @testset "visualize_model_space" begin
         output = visualize_model_space(2, 2)
         @test occursin("Model Space:", output)

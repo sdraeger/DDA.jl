@@ -114,7 +114,7 @@ result = run_st(
 
 - `channels` are 1-indexed everywhere in the Julia API
 - File-based calls infer channel labels from EDF headers and from optional ASCII/TSV header rows. Pass `channel_labels` to override them explicitly.
-- `model` maps directly to the binary `-MODEL` argument. If you pass a custom model, also pass explicit `derivative_points` and `order`
+- `model` maps to the binary `-MODEL` argument. Pass a vector of `-MODEL` indices directly, or pass a matrix whose rows are monomial encodings; matrix rows are converted to indices using `nr_tau` and `order`. If you pass a custom model, also pass explicit `derivative_points` and `order`
 - `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
 - `WL` and `WS` map to the binary `-WL` and `-WS` arguments. Both default to `nothing`; unset values are not passed to the binary.
 - `-WLms` and `-WSms` are special binary flags and are intentionally not emitted by this wrapper.

@@ -724,6 +724,56 @@ end
         end
     end
 
+    @testset "Model matrix is encoded row-wise before command generation" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            model_matrix = [
+                0 0 1
+                0 0 2
+                1 1 1
+            ]
+            request = DDARequest(
+                "test.edf",
+                [1, 2],
+                ["ST"];
+                model=model_matrix,
+                derivative_points=4,
+                order=3,
+                nr_tau=2,
+                WL=128,
+                WS=100,
+                out_fn="/tmp/model_matrix_output",
+            )
+            output_base, cleanup_output = DelayDifferentialAnalysis.Runner._resolve_output_base(request)
+            cmd = DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                request,
+                output_base,
+            )
+            argv = collect(cmd)
+
+            @test cleanup_output == false
+            @test request.model_terms == [1, 2, 6]
+            @test argv[(findfirst(==("-MODEL"), argv) + 1):(findfirst(==("-TAU"), argv) - 1)] == ["1", "2", "6"]
+            @test argv[(findfirst(==("-dm"), argv) + 1)] == "4"
+            @test argv[(findfirst(==("-order"), argv) + 1)] == "3"
+
+            if !Sys.iswindows()
+                cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
+                    runner,
+                    request,
+                    output_base,
+                )
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/model_matrix_output -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 6 -TAU 7 10 -WL 128 -WS 100 -dm 4 -order 3 -nr_tau 2"
+            end
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
     @testset "Sampling rate is emitted as scalar, tuple, or omitted by default" begin
         fake_binary = tempname()
         touch(fake_binary)

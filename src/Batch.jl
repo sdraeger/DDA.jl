@@ -5,6 +5,7 @@ using Statistics
 using ..Results
 using ..API
 using ..DDADefaults
+using ..Runner
 
 export GroupResult, run_batch, collect_results
 export n_subjects, mean_over_windows
@@ -85,7 +86,7 @@ function run_batch(
     variant::String="st",
     sfreq::Float64=1.0,
     delays::Vector{Int}=collect(DDADefaults.DELAYS),
-    model::Union{Vector{Int},Nothing}=nothing,
+    model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int,Nothing}=DDADefaults.WL,
     WS::Union{Int,Nothing}=DDADefaults.WS,
     channel_labels::Union{Vector{String},Nothing}=nothing,
