@@ -426,8 +426,8 @@ end
         @test result.t == [0.032, 0.432]
         @test result.t == t
         @test legacy_result.t == t
-        @test result.ST === variant
-        @test result.ST.A == A
+        @test result.ST == A
+        @test result.ST isa Matrix{Float64}
         @test :ST in propertynames(result)
         @test !(:CT in propertynames(result))
         @test_throws ErrorException result.CT
@@ -1045,29 +1045,38 @@ fi
 
                 result = run_DDA(;
                     file_path=input_file,
-                    channels=[1, 2, 3],
+                    channels=[1, 2, 1, 4],
                     flavors=["ST", "CT"],
                     binary_path=fake_binary,
                     WL=128,
                     WS=100,
+                    WL_CT=2,
+                    WS_CT=2,
                     out_fn=output_base,
                 )
 
                 variant_ids = [vr.variant_id for vr in result.variant_results]
                 @test variant_ids == ["ST", "CT"]
-                @test result.ST === result.variant_results[1]
-                @test result.CT === result.variant_results[2]
-                @test result.ST.A == result.variant_results[1].A
-                @test result.CT.A == result.variant_results[2].A
+                @test result.ST == result.variant_results[1].A
+                @test result.CT == result.variant_results[2].A
+                @test result.ST isa Matrix{Float64}
+                @test result.CT isa Matrix{Float64}
                 @test :ST in propertynames(result)
                 @test :CT in propertynames(result)
                 @test !(:DE in propertynames(result))
+                info_text = read("$(output_base).info", String)
+                @test startswith(info_text, "$fake_binary -ASCII -DATA_FN")
+                @test occursin("-CH_list 1 2 1 4 -SELECT 1 1 0 0 0 0", info_text)
+                @test occursin("-WL_CT 2 -WS_CT 2", info_text)
                 ct_result = result.variant_results[2]
-                @test size(ct_result.A) == (1, 12)
+                @test size(ct_result.A) == (1, 24)
                 @test ct_result.channel_labels == [
                     "Channel 1-Channel 2",
-                    "Channel 1-Channel 3",
-                    "Channel 2-Channel 3",
+                    "Channel 1-Channel 1",
+                    "Channel 1-Channel 4",
+                    "Channel 2-Channel 1",
+                    "Channel 2-Channel 4",
+                    "Channel 1-Channel 4",
                 ]
             finally
                 rm(temp_dir; recursive=true, force=true)

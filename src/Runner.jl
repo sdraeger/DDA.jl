@@ -574,8 +574,9 @@ end
 DDA analysis result.
 
 Returned flavors are exposed as dynamic properties, for example `result.ST`
-and `result.CT`. Top-level `T`, `t`, and `A` mirror the primary variant for
-backward compatibility; prefer `result.<flavor>.A` for flavor-specific output.
+and `result.CT`, with each flavor property returning that flavor's `A` matrix
+directly. Top-level `T`, `t`, and `A` mirror the primary variant for backward
+compatibility.
 """
 struct DDAResult
     id::String
@@ -629,7 +630,7 @@ function Base.getproperty(result::DDAResult, name::Symbol)
     name in fieldnames(typeof(result)) && return getfield(result, name)
     if name in DDA_RESULT_FLAVOR_PROPERTIES
         variant = _variant_result_property(result, name)
-        variant !== nothing && return variant
+        variant !== nothing && return getfield(variant, :A)
         error("DDAResult does not contain flavor `$name`")
     end
     return getfield(result, name)
@@ -728,6 +729,29 @@ function _run_command(runner::DDARunner, request::DDARequest, output_base::Strin
         run(cmd)
     catch e
         error("DDA execution failed: $e")
+    end
+    return nothing
+end
+
+function _logical_command_parts(
+    runner::DDARunner,
+    request::DDARequest,
+    output_base::String,
+)::Vector{String}
+    parts = collect(build_command(runner, request, output_base))
+    if REQUIRES_SHELL_WRAPPER && !Sys.iswindows() && length(parts) >= 2 && parts[1] == SHELL_COMMAND
+        return parts[2:end]
+    end
+    return parts
+end
+
+function _write_logical_command_info(
+    runner::DDARunner,
+    request::DDARequest,
+    output_base::String,
+)
+    open("$(output_base).info", "w") do io
+        println(io, join(_logical_command_parts(runner, request, output_base), " "))
     end
     return nothing
 end
@@ -913,6 +937,7 @@ function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{
         if _has_ct_variant(request)
             ct_channels, _ = _run_ct_pairs(runner, request, output_base)
             results["CT"] = ct_channels
+            _write_logical_command_info(runner, request, output_base)
         end
         return results
     finally
@@ -979,6 +1004,7 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
                 request,
                 ct_labels,
             )
+            _write_logical_command_info(runner, request, output_base)
         end
     finally
         cleanup_output && cleanup_temp_files(output_base, request.variants)

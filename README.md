@@ -73,8 +73,8 @@ result = run_DDA(
 println(size(result.T))  # first two raw integer binary columns
 println(size(result.t))  # derived time axis from result.T[:, 1]
 println(size(result.A))  # all remaining raw binary columns
-println(size(result.ST.A))
-println(size(result.SY.A))
+println(size(result.ST))
+println(size(result.SY))
 ```
 
 The structured variant is also available:
@@ -122,7 +122,7 @@ result = run_st(
 - `WL_CT` and `WS_CT` are channel-group parameters, not temporal window aliases. Pairwise CT uses `2`/`2`; omit them for the binary default or pass exactly `WL_CT=2, WS_CT=2`.
 - When `CT` is requested via `run_DDA`, the wrapper runs CT once per channel pair and merges the pair outputs into a single `CT` result.
 - `select` can be passed to `run_DDA(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
-- Low-level `run_DDA` results expose each returned flavor as a property, for example `result.ST.A` and `result.CT.A`. Top-level `result.T`, `result.t`, and `result.A` mirror the first returned flavor for backward compatibility.
+- Low-level `run_DDA` results expose each returned flavor matrix directly as a property, for example `result.ST` and `result.CT`. Top-level `result.T`, `result.t`, and `result.A` mirror the first returned flavor for backward compatibility.
 - `TM` is used only for `result.t` and defaults to `max(delays)`
 - `sampling_rate` is optional and defaults to `nothing`. When omitted, no `-SR` flag is passed. A scalar maps to `-SR N`; a tuple maps to `-SR N1 N2`.
 - `out_fn` is `nothing` by default. In that case the wrapper uses a temporary output base for the call. If you pass `out_fn`, that exact value is sent to `-OUT_FN`
