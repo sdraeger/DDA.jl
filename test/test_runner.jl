@@ -1084,6 +1084,55 @@ fi
         end
     end
 
+    @testset "run_DDA fills empty binary info file with logical command provenance" begin
+        if Sys.iswindows()
+            @info "Skipping shell info provenance test on Windows"
+        else
+            temp_dir = mktempdir()
+            fake_binary = joinpath(temp_dir, "fake_empty_info_dda.sh")
+            input_file = joinpath(temp_dir, "input.txt")
+            output_base = joinpath(temp_dir, "st")
+
+            open(input_file, "w") do io
+                println(io, "1 2")
+                println(io, "3 4")
+            end
+
+            open(fake_binary, "w") do io
+                write(io, raw"""#!/usr/bin/env sh
+out=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -OUT_FN) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+: > "$out.info"
+printf '%s\n' '0 10 1.0 2.0 3.0 0.1' > "${out}_ST"
+""")
+            end
+            chmod(fake_binary, 0o755)
+
+            try
+                result = run_DDA(;
+                    file_path=input_file,
+                    channels=[1],
+                    flavors=["ST"],
+                    binary_path=fake_binary,
+                    out_fn=output_base,
+                )
+
+                @test result.ST isa Matrix{Float64}
+                info_text = read("$(output_base).info", String)
+                @test !isempty(strip(info_text))
+                @test startswith(info_text, "$fake_binary -ASCII -DATA_FN")
+                @test occursin("-OUT_FN $output_base -CH_list 1 -SELECT 1 0 0 0 0 0", info_text)
+            finally
+                rm(temp_dir; recursive=true, force=true)
+            end
+        end
+    end
+
     @testset "Raw T, derived t, and normalized window bounds are kept separate" begin
         request = DDARequest(
             "test.edf",

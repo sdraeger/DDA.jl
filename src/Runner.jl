@@ -756,6 +756,24 @@ function _write_logical_command_info(
     return nothing
 end
 
+function _info_file_missing_or_empty(output_base::String)::Bool
+    info_file = "$(output_base).info"
+    !isfile(info_file) && return true
+    return isempty(strip(read(info_file, String)))
+end
+
+function _ensure_logical_command_info(
+    runner::DDARunner,
+    request::DDARequest,
+    output_base::String;
+    overwrite::Bool=false,
+)
+    if overwrite || _info_file_missing_or_empty(output_base)
+        _write_logical_command_info(runner, request, output_base)
+    end
+    return nothing
+end
+
 function _parse_structured_outputs(
     request::DDARequest,
     output_base::String,
@@ -937,10 +955,17 @@ function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{
         if _has_ct_variant(request)
             ct_channels, _ = _run_ct_pairs(runner, request, output_base)
             results["CT"] = ct_channels
-            _write_logical_command_info(runner, request, output_base)
         end
         return results
     finally
+        if !cleanup_output
+            _ensure_logical_command_info(
+                runner,
+                request,
+                output_base;
+                overwrite=_has_ct_variant(request),
+            )
+        end
         cleanup_output && cleanup_temp_files(output_base, request.variants)
     end
 end
@@ -1004,9 +1029,16 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
                 request,
                 ct_labels,
             )
-            _write_logical_command_info(runner, request, output_base)
         end
     finally
+        if !cleanup_output
+            _ensure_logical_command_info(
+                runner,
+                request,
+                output_base;
+                overwrite=_has_ct_variant(request),
+            )
+        end
         cleanup_output && cleanup_temp_files(output_base, request.variants)
     end
 
