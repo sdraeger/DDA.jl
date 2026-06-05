@@ -7,8 +7,7 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     args = String[]
 
     # File type flag
-    ext = lowercase(splitext(request.file_path)[2])
-    push!(args, ext == ".edf" ? "-EDF" : "-ASCII")
+    push!(args, get_flag(request.input_format))
 
     # Input/output
     push!(args, "-DATA_FN", request.file_path)

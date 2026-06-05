@@ -212,6 +212,22 @@ function _sampling_rate_args(sampling_rate::SamplingRate)::Vector{String}
     return [string(sampling_rate[1]), string(sampling_rate[2])]
 end
 
+function _normalize_input_format(
+    file_path::AbstractString,
+    input_format,
+)::FileType
+    if input_format === nothing
+        return something(file_type_from_extension(splitext(file_path)[2]), ASCII)
+    end
+
+    input_format isa FileType && return input_format
+
+    normalized = lowercase(lstrip(String(input_format), '-'))
+    normalized in ("ascii", "txt", "csv") && return ASCII
+    normalized == "edf" && return EDF
+    error("`input_format` must be `:ascii`, `:edf`, \"ascii\", or \"edf\"")
+end
+
 """
     DDARequest(file_path, channels, variants; kwargs...)
 
@@ -233,6 +249,7 @@ Create a DDA analysis request.
 - `ct_pairs`: CT channel pairs (1-based)
 - `cd_pairs`: CD directed pairs (1-based)
 - `select`: Optional explicit `-SELECT` mask. When passed, it overrides `variants`
+- `input_format`: Optional input format override. Accepts `:ascii`, `:edf`, `"ascii"`, or `"edf"`.
 - `sampling_rate`: Optional `-SR` value. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`. Defaults to `$(DDADefaults.SAMPLING_RATE)`
 - `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
 - `out_fn`: Optional output base passed to `-OUT_FN`
@@ -257,6 +274,7 @@ function DDARequest(
     ct_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
     cd_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
     select::Union{AbstractVector{<:Integer}, Nothing}=nothing,
+    input_format=nothing,
     sampling_rate::Union{
         Nothing,
         Real,
@@ -314,6 +332,7 @@ function DDARequest(
         _normalize_pairs(ct_pairs),
         _normalize_pairs(cd_pairs),
         normalized_select,
+        _normalize_input_format(file_path, input_format),
         _normalize_sampling_rate(sampling_rate),
         _resolve_tm(dp.delays, TM),
         normalized_out_fn,

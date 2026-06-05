@@ -55,6 +55,7 @@ DDA analysis request parameters.
 - `ct_channel_pairs`: Channel pairs for CT (1-based)
 - `cd_channel_pairs`: Directed pairs for CD (1-based)
 - `select`: Optional explicit SELECT mask overriding `variants`
+- `input_format`: Input format used for the binary file-type flag
 - `sampling_rate`: Optional `-SR` value. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`
 - `tm`: Optional `TM` value used only to compute the derived `t` axis
 - `out_fn`: Optional output base passed to `-OUT_FN`
@@ -75,6 +76,7 @@ struct DDARequest
     ct_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     cd_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     select::Union{Vector{Int}, Nothing}
+    input_format::FileType
     sampling_rate::SamplingRate
     tm::Int
     out_fn::Union{String, Nothing}

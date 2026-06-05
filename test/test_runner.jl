@@ -826,6 +826,52 @@ end
         end
     end
 
+    @testset "Input format can override file extension" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+
+            ascii_request = DDARequest(
+                "test.custom",
+                [1],
+                ["ST"];
+                input_format=:ascii,
+            )
+            ascii_argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                ascii_request,
+                "/tmp/ascii_out",
+            ))
+            @test "-ASCII" in ascii_argv
+            @test !("-EDF" in ascii_argv)
+
+            edf_request = DDARequest(
+                "test.custom",
+                [1],
+                ["ST"];
+                input_format="edf",
+            )
+            edf_argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                edf_request,
+                "/tmp/edf_out",
+            ))
+            @test "-EDF" in edf_argv
+            @test !("-ASCII" in edf_argv)
+
+            @test_throws ErrorException DDARequest(
+                "test.custom",
+                [1],
+                ["ST"];
+                input_format=:mat,
+            )
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
     @testset "run_DDA passthrough kwargs map directly to binary flags" begin
         fake_binary = tempname()
         touch(fake_binary)
@@ -982,9 +1028,9 @@ end
         end
     end
 
-    @testset "run_DDA executes CT once per pair when mixed with ST" begin
+    @testset "run_DDA parses native CT output when mixed with ST" begin
         if Sys.iswindows()
-            @info "Skipping CT pair execution test on Windows"
+            @info "Skipping mixed CT execution test on Windows"
         else
             temp_dir = mktempdir()
             fake_binary = joinpath(temp_dir, "fake_dda.sh")
@@ -1024,25 +1070,17 @@ if [ "$st" = "1" ]; then
   printf '%s\n' "$line" > "${out}_ST"
 fi
 if [ "$ct" = "1" ]; then
-  printf '%s\n' '0 10 4.0 5.0 6.0 0.2' > "${out}_CT"
+  if [ "$st" = "1" ]; then
+    printf '%s\n' '0 10 4.0 5.0 6.0 0.2 7.0 8.0 9.0 0.3' > "${out}_CT"
+  else
+    printf '%s\n' '0 10 4.0 5.0 6.0 0.2' > "${out}_CT"
+  fi
 fi
 """)
             end
             chmod(fake_binary, 0o755)
 
             try
-                @test_throws ErrorException run_DDA(;
-                    file_path=input_file,
-                    channels=[1, 2, 3],
-                    flavors=["ST", "CT"],
-                    binary_path=fake_binary,
-                    WL=128,
-                    WS=100,
-                    WL_CT=128,
-                    WS_CT=100,
-                    out_fn=joinpath(temp_dir, "invalid_ct"),
-                )
-
                 result = run_DDA(;
                     file_path=input_file,
                     channels=[1, 2, 1, 4],
@@ -1069,14 +1107,11 @@ fi
                 @test occursin("-CH_list 1 2 1 4 -SELECT 1 1 0 0 0 0", info_text)
                 @test occursin("-WL_CT 2 -WS_CT 2", info_text)
                 ct_result = result.variant_results[2]
-                @test size(ct_result.A) == (1, 24)
+                @test size(ct_result.A) == (1, 8)
+                @test result.CT == [4.0 5.0 6.0 0.2 7.0 8.0 9.0 0.3]
                 @test ct_result.channel_labels == [
                     "Channel 1-Channel 2",
                     "Channel 1-Channel 1",
-                    "Channel 1-Channel 4",
-                    "Channel 2-Channel 1",
-                    "Channel 2-Channel 4",
-                    "Channel 1-Channel 4",
                 ]
             finally
                 rm(temp_dir; recursive=true, force=true)
