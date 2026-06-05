@@ -3,7 +3,7 @@ using DelayDifferentialAnalysis
 
 @testset "API" begin
     # Check if binary is available for integration tests
-    binary_available = DelayDifferentialAnalysis.Variants.find_binary() !== nothing
+    binary_available = DelayDifferentialAnalysis.Flavors.find_binary() !== nothing
     repo_binary = abspath(joinpath(@__DIR__, "..", "..", "..", "bin", "run_DDA_AsciiEdf"))
 
     @testset "run_st integration" begin

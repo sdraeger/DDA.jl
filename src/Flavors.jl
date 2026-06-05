@@ -1,6 +1,6 @@
-#= DDA Variant definitions — DDA Specification v1.0.0 =#
+#= DDA flavor definitions — DDA Specification v1.0.0 =#
 
-module Variants
+module Flavors
 
 export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
 export SHELL_COMMAND, SUPPORTED_PLATFORMS

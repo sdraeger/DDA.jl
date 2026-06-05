@@ -1,5 +1,5 @@
 #=
-Comprehensive spec validation tests for generated Julia Variants module.
+Comprehensive spec validation tests for generated Julia Flavors module.
 
 These tests validate that the generated DDA spec implementation is correct and consistent.
 =#
@@ -38,6 +38,7 @@ const CT_REQUIRING_VARIANTS = ["CT", "CD", "DE"]
         @test length(SUPPORTED_PLATFORMS) == 3
         @test SELECT_MASK_SIZE == 6
         @test length(VARIANT_REGISTRY) == SELECT_MASK_SIZE
+        @test DelayDifferentialAnalysis.Variants === DelayDifferentialAnalysis.Flavors
     end
 
     # =============================================================================

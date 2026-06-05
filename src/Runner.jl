@@ -9,7 +9,7 @@ module Runner
 
 import UUIDs
 import Dates
-using ..Variants
+using ..Flavors
 using ..DDADefaults
 using ..ModelEncoding: model_matrix_to_encoding
 

@@ -114,13 +114,14 @@ result = run_st(
 
 - `channels` are 1-indexed everywhere in the Julia API
 - File-based calls infer channel labels from EDF headers and from optional ASCII/TSV header rows. Pass `channel_labels` to override them explicitly.
+- File-based calls infer the binary input flag from the extension by default: `.edf` emits `-EDF`, all other extensions emit `-ASCII`. Pass `input_format=:ascii` or `input_format=:edf` to override this manually; string values such as `input_format="ascii"` are also accepted.
 - `model` maps to the binary `-MODEL` argument. Pass a vector of `-MODEL` indices directly, or pass a matrix whose rows are monomial encodings; matrix rows are converted to indices using `nr_tau` and `order`. If you pass a custom model, also pass explicit `derivative_points` and `order`
 - `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
 - `WL` and `WS` map to the binary `-WL` and `-WS` arguments. Both default to `nothing`; unset values are not passed to the binary.
 - `-WLms` and `-WSms` are special binary flags and are intentionally not emitted by this wrapper.
 - `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `WL_CT::Int` maps to `-WL_CT`, `WS_CT::Int` maps to `-WS_CT`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified.
-- `WL_CT` and `WS_CT` are channel-group parameters, not temporal window aliases. Pairwise CT uses `2`/`2`; omit them for the binary default or pass exactly `WL_CT=2, WS_CT=2`.
-- When `CT` is requested via `run_DDA`, the wrapper runs CT once per channel pair and merges the pair outputs into a single `CT` result.
+- `WL_CT` and `WS_CT` are channel-group parameters, not temporal window aliases. `run_DDA` passes them through exactly when specified.
+- `run_DDA` executes the requested binary command once and parses the native output files produced by the binary, including mixed `ST`/`CT` runs.
 - `select` can be passed to `run_DDA(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
 - Low-level `run_DDA` results expose each returned flavor matrix directly as a property, for example `result.ST` and `result.CT`. Top-level `result.T`, `result.t`, and `result.A` mirror the first returned flavor for backward compatibility.
 - `TM` is used only for `result.t` and defaults to `max(delays)`
@@ -142,7 +143,7 @@ path = find_binary("/opt/dda/bin/run_DDA_AsciiEdf")
 println(path)
 ```
 
-## Variants
+## Flavors
 
 | Abbreviation | Name                 | Description                                     
 | ------------ | -----------------    | ----------------------------------------------- 

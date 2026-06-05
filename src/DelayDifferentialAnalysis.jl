@@ -67,9 +67,10 @@ result = run_DDA(
 """
 module DelayDifferentialAnalysis
 
-# --- Variants (binary metadata, SELECT masks, file types) ---
-include("Variants.jl")
-using .Variants
+# --- Flavors (binary metadata, SELECT masks, file types) ---
+include("Flavors.jl")
+using .Flavors
+const Variants = Flavors
 export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
 export SHELL_COMMAND, SUPPORTED_PLATFORMS
 export BINARY_ENV_VAR, DEFAULT_BINARY_PATHS
