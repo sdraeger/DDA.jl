@@ -119,8 +119,8 @@ result = run_st(
 - `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
 - `WL` and `WS` map to the binary `-WL` and `-WS` arguments. Both default to `nothing`; unset values are not passed to the binary.
 - `-WLms` and `-WSms` are special binary flags and are intentionally not emitted by this wrapper.
-- `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `WL_CT::Int` maps to `-WL_CT`, `WS_CT::Int` maps to `-WS_CT`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified.
-- `WL_CT` and `WS_CT` are channel-group parameters, not temporal window aliases. `run_DDA` passes them through exactly when specified.
+- `WL_CT` and `WS_CT` are channel-group parameters, not temporal window aliases. `run_DDA` emits each flag at most once. The legacy aliases `ct_window_length` and `ct_window_step` are accepted when they agree with `WL_CT` and `WS_CT`, and conflicting values raise an error.
+- `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified.
 - `run_DDA` executes the requested binary command once and parses the native output files produced by the binary, including mixed `ST`/`CT` runs.
 - `select` can be passed to `run_DDA(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
 - Low-level `run_DDA` results expose each returned flavor matrix directly as a property, for example `result.ST` and `result.CT`. Top-level `result.T`, `result.t`, and `result.A` mirror the first returned flavor for backward compatibility.

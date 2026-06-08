@@ -55,8 +55,6 @@ function _build_passthrough_args(;
     tau_file::Union{AbstractString, Nothing}=nothing,
     tau2=nothing,
     model2=nothing,
-    WL_CT::Union{Integer, Nothing}=nothing,
-    WS_CT::Union{Integer, Nothing}=nothing,
     no_norm::Bool=false,
     WN_list=nothing,
 )::Vector{String}
@@ -68,11 +66,28 @@ function _build_passthrough_args(;
     _append_passthrough!(args, "-TAU_file", tau_file)
     _append_passthrough!(args, "-TAU2", normalized_tau2)
     _append_passthrough!(args, "-MODEL2", normalized_model2)
-    _append_passthrough!(args, "-WL_CT", WL_CT)
-    _append_passthrough!(args, "-WS_CT", WS_CT)
     no_norm && push!(args, "-NoNorm")
     _append_passthrough!(args, "-WN_list", normalized_WN_list)
     return args
+end
+
+function _resolve_optional_int_alias(
+    preferred_name::String,
+    preferred::Union{Integer, Nothing},
+    legacy_name::String,
+    legacy::Union{Integer, Nothing},
+)::Union{Int, Nothing}
+    if preferred !== nothing && legacy !== nothing && Int(preferred) != Int(legacy)
+        error(
+            "Conflicting `$preferred_name` and `$legacy_name` values: " *
+            "$(Int(preferred)) and $(Int(legacy))",
+        )
+    end
+    value = preferred !== nothing ? preferred : legacy
+    value === nothing && return nothing
+    normalized = Int(value)
+    normalized > 0 || error("`$preferred_name` must be positive")
+    return normalized
 end
 
 function _normalize_select(
@@ -253,7 +268,8 @@ Create a DDA analysis request.
 - `sampling_rate`: Optional `-SR` value. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`. Defaults to `$(DDADefaults.SAMPLING_RATE)`
 - `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
 - `out_fn`: Optional output base passed to `-OUT_FN`
-- `tau_file`, `tau2`, `model2`, `WL_CT`, `WS_CT`, `no_norm`, `WN_list`: Raw binary passthrough arguments
+- `WL_CT`, `WS_CT`: Preferred aliases for `ct_window_length` and `ct_window_step`
+- `tau_file`, `tau2`, `model2`, `no_norm`, `WN_list`: Raw binary passthrough arguments
 """
 function DDARequest(
     file_path::AbstractString,
@@ -301,7 +317,9 @@ function DDARequest(
         dm,
         order,
     )
-    wp = WindowParameters(WL, WS, ct_window_length, ct_window_step)
+    ct_wl = _resolve_optional_int_alias("WL_CT", WL_CT, "ct_window_length", ct_window_length)
+    ct_ws = _resolve_optional_int_alias("WS_CT", WS_CT, "ct_window_step", ct_window_step)
+    wp = WindowParameters(WL, WS, ct_wl, ct_ws)
     dp = DelayParameters(Int[delays...])
     mp = ModelParameters(
         _resolve_derivative_points(derivative_points, dm),
@@ -315,8 +333,6 @@ function DDARequest(
         tau_file=tau_file,
         tau2=tau2,
         model2=model2,
-        WL_CT=WL_CT,
-        WS_CT=WS_CT,
         no_norm=no_norm,
         WN_list=WN_list,
     )

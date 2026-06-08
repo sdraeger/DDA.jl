@@ -904,8 +904,10 @@ end
             @test "-TAU_file" in argv
             @test argv[findfirst(==("-TAU_file"), argv) + 1] == "/tmp/tau_values.txt"
             @test argv[(findfirst(==("-TAU2"), argv) + 1):(findfirst(==("-MODEL2"), argv) - 1)] == ["11", "12"]
-            @test argv[(findfirst(==("-MODEL2"), argv) + 1):(findfirst(==("-WL_CT"), argv) - 1)] == ["2", "5", "9"]
+            @test argv[(findfirst(==("-MODEL2"), argv) + 1):(findfirst(==("-NoNorm"), argv) - 1)] == ["2", "5", "9"]
+            @test count(==("-WL_CT"), argv) == 1
             @test argv[findfirst(==("-WL_CT"), argv) + 1] == "33"
+            @test count(==("-WS_CT"), argv) == 1
             @test "-WS_CT" in argv
             @test !("-WS_ct" in argv)
             @test argv[findfirst(==("-WS_CT"), argv) + 1] == "22"
@@ -914,7 +916,7 @@ end
             @test !("WN_list" in argv)
             @test argv[(findfirst(==("-WN_list"), argv) + 1):end] == ["4", "8", "12"]
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/passthrough_out -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -dm 3 -order 4 -nr_tau 2 -TAU_file /tmp/tau_values.txt -TAU2 11 12 -MODEL2 2 5 9 -WL_CT 33 -WS_CT 22 -NoNorm -WN_list 4 8 12"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/passthrough_out -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -dm 3 -order 4 -nr_tau 2 -WL_CT 33 -WS_CT 22 -TAU_file /tmp/tau_values.txt -TAU2 11 12 -MODEL2 2 5 9 -NoNorm -WN_list 4 8 12"
             end
         finally
             rm(fake_binary, force=true)
@@ -993,6 +995,36 @@ end
 
             @test explicit_argv[findfirst(==("-WL_CT"), explicit_argv) + 1] == "33"
             @test explicit_argv[findfirst(==("-WS_CT"), explicit_argv) + 1] == "22"
+
+            duplicate_alias_request = DDARequest(
+                "test.edf",
+                [1, 2],
+                ["DE"];
+                ct_window_length=33,
+                ct_window_step=22,
+                WL_CT=33,
+                WS_CT=22,
+            )
+            duplicate_alias_argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                duplicate_alias_request,
+                "/tmp/duplicate_ct_out",
+            ))
+
+            @test count(==("-WL_CT"), duplicate_alias_argv) == 1
+            @test count(==("-WS_CT"), duplicate_alias_argv) == 1
+            @test duplicate_alias_argv[findfirst(==("-WL_CT"), duplicate_alias_argv) + 1] == "33"
+            @test duplicate_alias_argv[findfirst(==("-WS_CT"), duplicate_alias_argv) + 1] == "22"
+
+            @test_throws ErrorException DDARequest(
+                "test.edf",
+                [1, 2],
+                ["DE"];
+                ct_window_length=33,
+                ct_window_step=21,
+                WL_CT=33,
+                WS_CT=22,
+            )
         finally
             rm(fake_binary, force=true)
         end
