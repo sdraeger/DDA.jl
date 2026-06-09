@@ -330,14 +330,11 @@ const VARIANT_REGISTRY = [
 ]
 
 """Variant abbreviations in SELECT mask order."""
-const VARIANT_ORDER = [
-    "ST",
-    "CT",
-    "CD",
-    "RESERVED",
-    "DE",
-    "SY",
-]
+const VARIANT_ORDER = [v.abbreviation for v in VARIANT_REGISTRY]
+
+const _VARIANT_BY_ABBREV = Dict(v.abbreviation => v for v in VARIANT_REGISTRY)
+const _VARIANT_BY_SUFFIX = Dict(v.output_suffix => v for v in VARIANT_REGISTRY)
+const _VARIANT_BY_POSITION = Dict(v.position => v for v in VARIANT_REGISTRY)
 
 # =============================================================================
 # SELECT MASK POSITIONS
@@ -358,26 +355,17 @@ end
 
 """Look up variant by abbreviation."""
 function get_variant_by_abbrev(abbrev::AbstractString)::Union{VariantMetadata, Nothing}
-    for v in VARIANT_REGISTRY
-        v.abbreviation == abbrev && return v
-    end
-    return nothing
+    return get(_VARIANT_BY_ABBREV, String(abbrev), nothing)
 end
 
 """Look up variant by output suffix."""
 function get_variant_by_suffix(suffix::AbstractString)::Union{VariantMetadata, Nothing}
-    for v in VARIANT_REGISTRY
-        v.output_suffix == suffix && return v
-    end
-    return nothing
+    return get(_VARIANT_BY_SUFFIX, String(suffix), nothing)
 end
 
 """Look up variant by position in SELECT mask."""
 function get_variant_by_position(position::Integer)::Union{VariantMetadata, Nothing}
-    for v in VARIANT_REGISTRY
-        v.position == position && return v
-    end
-    return nothing
+    return get(_VARIANT_BY_POSITION, Int(position), nothing)
 end
 
 """Get all non-reserved variants."""

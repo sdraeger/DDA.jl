@@ -146,16 +146,7 @@ end
 """Load an ASCII file as Matrix{Float64} (channels × samples)."""
 function _load_ascii(filepath::String)::Matrix{Float64}
     # Read tab/space-delimited numeric data, transpose to channels × samples
-    lines = readlines(filepath)
-    rows = Vector{Vector{Float64}}()
-    for line in lines
-        stripped = strip(line)
-        (isempty(stripped) || startswith(stripped, '#')) && continue
-        parts = split(stripped)
-        values = tryparse.(Float64, parts)
-        all(v -> v !== nothing, values) || continue
-        push!(rows, Float64[v for v in values])
-    end
+    rows = Runner._read_numeric_rows(filepath)
     isempty(rows) && error("No numeric data in $filepath")
     n_timepoints = length(rows)
     n_channels = length(rows[1])
@@ -211,46 +202,47 @@ function collect_results(
 end
 
 function _collect_st(results::Vector, labels::Vector{String})::GroupResult
-    n_subj = length(results)
-    r1 = results[1]::STResult
-    nc = n_channels(r1)
-    nk = n_coeffs(r1)
-    min_win = minimum(n_windows(r)::Int for r in results)
-
-    for r in results
-        r_typed = r::STResult
-        n_channels(r_typed) == nc || error("Channel count mismatch: expected $nc, got $(n_channels(r_typed))")
-        n_coeffs(r_typed) == nk || error("Coefficient count mismatch: expected $nk, got $(n_coeffs(r_typed))")
-    end
-
-    if any(n_windows(r)::Int != min_win for r in results)
-        @warn "Window counts vary across subjects; truncating to $min_win"
-    end
-
-    coeffs = Array{Float64,4}(undef, n_subj, nc, min_win, nk)
-    errs = Array{Float64,3}(undef, n_subj, nc, min_win)
-
-    for (si, r) in enumerate(results)
-        r_typed = r::STResult
-        coeffs[si, :, :, :] = r_typed.coefficients[:, 1:min_win, :]
-        errs[si, :, :] = r_typed.errors[:, 1:min_win]
-    end
-
-    ch_labels = r1.channel_labels
-    params = r1.params
-    return GroupResult(coeffs, errs, labels, ch_labels, params, "ST")
+    return _collect_coeff_results(
+        STResult,
+        results,
+        labels,
+        "ST",
+        n_channels,
+        r -> r.channel_labels,
+        "Channel",
+    )
 end
 
 function _collect_ct(results::Vector, labels::Vector{String})::GroupResult
+    return _collect_coeff_results(
+        CTResult,
+        results,
+        labels,
+        "CT",
+        n_pairs,
+        r -> r.pair_labels,
+        "Pair",
+    )
+end
+
+function _collect_coeff_results(
+    ::Type{T},
+    results::Vector,
+    labels::Vector{String},
+    variant::String,
+    entity_count::Function,
+    entity_labels::Function,
+    entity_name::String,
+)::GroupResult where {T}
     n_subj = length(results)
-    r1 = results[1]::CTResult
-    np = n_pairs(r1)
+    r1 = results[1]::T
+    n_entities = entity_count(r1)
     nk = n_coeffs(r1)
     min_win = minimum(n_windows(r)::Int for r in results)
 
     for r in results
-        r_typed = r::CTResult
-        n_pairs(r_typed) == np || error("Pair count mismatch")
+        r_typed = r::T
+        entity_count(r_typed) == n_entities || error("$entity_name count mismatch")
         n_coeffs(r_typed) == nk || error("Coefficient count mismatch")
     end
 
@@ -258,18 +250,16 @@ function _collect_ct(results::Vector, labels::Vector{String})::GroupResult
         @warn "Window counts vary across subjects; truncating to $min_win"
     end
 
-    coeffs = Array{Float64,4}(undef, n_subj, np, min_win, nk)
-    errs = Array{Float64,3}(undef, n_subj, np, min_win)
+    coeffs = Array{Float64,4}(undef, n_subj, n_entities, min_win, nk)
+    errs = Array{Float64,3}(undef, n_subj, n_entities, min_win)
 
     for (si, r) in enumerate(results)
-        r_typed = r::CTResult
+        r_typed = r::T
         coeffs[si, :, :, :] = r_typed.coefficients[:, 1:min_win, :]
         errs[si, :, :] = r_typed.errors[:, 1:min_win]
     end
 
-    pair_labels = r1.pair_labels
-    params = r1.params
-    return GroupResult(coeffs, errs, labels, pair_labels, params, "CT")
+    return GroupResult(coeffs, errs, labels, entity_labels(r1), r1.params, variant)
 end
 
 function _collect_de(results::Vector, labels::Vector{String})::GroupResult

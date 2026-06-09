@@ -76,34 +76,26 @@ end
 
 Returns `(data, n_channels, n_coeffs)` where data is shape `(n_subjects, n_ch, n_coeff)`.
 """
+_n_entities(r::STResult) = n_channels(r)
+_n_entities(r::CTResult) = n_pairs(r)
+
 function _extract_coefficients(results::Vector)::Array{Float64,3}
     isempty(results) && error("results must be non-empty")
     r1 = results[1]
+    (r1 isa STResult || r1 isa CTResult) || error("permutation_test/compute_effect_size require STResult or CTResult")
 
-    if r1 isa STResult
-        nc = n_channels(r1)
-        nk = n_coeffs(r1)
-        n_subj = length(results)
-        data = Array{Float64,3}(undef, n_subj, nc, nk)
-        for (si, r) in enumerate(results)
-            r_typed = r::STResult
-            # Average across windows
-            data[si, :, :] = dropdims(mean(r_typed.coefficients; dims=2); dims=2)
-        end
-        return data
-    elseif r1 isa CTResult
-        np = n_pairs(r1)
-        nk = n_coeffs(r1)
-        n_subj = length(results)
-        data = Array{Float64,3}(undef, n_subj, np, nk)
-        for (si, r) in enumerate(results)
-            r_typed = r::CTResult
-            data[si, :, :] = dropdims(mean(r_typed.coefficients; dims=2); dims=2)
-        end
-        return data
-    else
-        error("permutation_test/compute_effect_size require STResult or CTResult")
+    n_entities = _n_entities(r1)
+    nk = n_coeffs(r1)
+    data = Array{Float64,3}(undef, length(results), n_entities, nk)
+
+    for (si, r) in enumerate(results)
+        r_typed = r::typeof(r1)
+        _n_entities(r_typed) == n_entities || error("Result entity count mismatch")
+        n_coeffs(r_typed) == nk || error("Coefficient count mismatch")
+        data[si, :, :] = dropdims(mean(r_typed.coefficients; dims=2); dims=2)
     end
+
+    return data
 end
 
 """Default test statistic: difference of means."""
@@ -255,7 +247,7 @@ function compare_windows(
 )::WindowComparisonResult
     method in ("ttest", "ranksum") || error("method must be 'ttest' or 'ranksum', got '$method'")
 
-    coeffs = result isa STResult ? result.coefficients : result.coefficients
+    coeffs = result.coefficients
     nc = size(coeffs, 1)
     nk = size(coeffs, 3)
 

@@ -2,6 +2,78 @@
 # FILE-BASED API
 # =============================================================================
 
+function _file_run_context(
+    file_path::AbstractString,
+    channels::AbstractVector{<:Integer};
+    channel_labels::Union{Vector{String}, Nothing},
+    model::Runner.OptionalModelSpec,
+    derivative_points::Union{Int, Nothing},
+    dm::Union{Int, Nothing},
+    order::Union{Int, Nothing},
+    nr_tau::Int,
+    sampling_rate,
+    delays::AbstractVector{<:Integer},
+    TM::Union{Int, Nothing},
+    resolve_labels::Bool=true,
+)
+    selected_channels = Runner._normalize_channels(channels)
+    labels = resolve_labels ? _resolve_labels(file_path, selected_channels, channel_labels) : String[]
+    model_terms, derivative_points_value, order_value = _resolve_model_configuration(
+        model,
+        derivative_points,
+        dm,
+        order,
+        nr_tau,
+    )
+    return (
+        selected_channels=selected_channels,
+        labels=labels,
+        model_terms=model_terms,
+        derivative_points=derivative_points_value,
+        order=order_value,
+        sampling_rate=Runner._normalize_sampling_rate(sampling_rate),
+        TM=Runner._resolve_tm(Int[delays...], TM),
+    )
+end
+
+function _run_file_flavor(
+    file_path::AbstractString,
+    selected_channels::Vector{Int},
+    flavor::String;
+    WL::Union{Int, Nothing},
+    WS::Union{Int, Nothing},
+    ct_wl::Union{Int, Nothing}=nothing,
+    ct_ws::Union{Int, Nothing}=nothing,
+    delays::AbstractVector{<:Integer},
+    model_terms::AbstractVector{<:Integer},
+    derivative_points::Int,
+    order::Int,
+    nr_tau::Int,
+    sampling_rate,
+    TM::Int,
+    out_fn::Union{String, Nothing},
+    binary_path::Union{String, Nothing},
+)
+    return run_analysis_structured(;
+        file_path=file_path,
+        channels=selected_channels,
+        flavors=[flavor],
+        WL=WL,
+        WS=WS,
+        ct_window_length=ct_wl,
+        ct_window_step=ct_ws,
+        delays=Int[delays...],
+        model=model_terms,
+        derivative_points=derivative_points,
+        order=order,
+        nr_tau=nr_tau,
+        sampling_rate=sampling_rate,
+        TM=TM,
+        out_fn=out_fn,
+        binary_path=binary_path,
+    )
+end
+
 """
     run_st(; file_path, channels, kwargs...) -> STResult
 
@@ -34,31 +106,33 @@ function _run_st_file(
     sampling_rate=DDADefaults.SAMPLING_RATE,
     TM::Union{Int, Nothing}=nothing,
 )::STResult
-    selected_channels = Runner._normalize_channels(channels)
-    labels = _resolve_labels(file_path, selected_channels, channel_labels)
-    model_terms, derivative_points_value, order_value = _resolve_model_configuration(
-        model,
-        derivative_points,
-        dm,
-        order,
-        nr_tau,
+    ctx = _file_run_context(
+        file_path,
+        channels;
+        channel_labels=channel_labels,
+        model=model,
+        derivative_points=derivative_points,
+        dm=dm,
+        order=order,
+        nr_tau=nr_tau,
+        sampling_rate=sampling_rate,
+        delays=delays,
+        TM=TM,
     )
-    sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
-    tm_value = Runner._resolve_tm(Int[delays...], TM)
 
-    raw = run_analysis_structured(;
-        file_path=file_path,
-        channels=selected_channels,
-        flavors=["ST"],
+    raw = _run_file_flavor(
+        file_path,
+        ctx.selected_channels,
+        "ST";
         WL=WL,
         WS=WS,
-        delays=Int[delays...],
-        model=model_terms,
-        derivative_points=derivative_points_value,
-        order=order_value,
+        delays=delays,
+        model_terms=ctx.model_terms,
+        derivative_points=ctx.derivative_points,
+        order=ctx.order,
         nr_tau=nr_tau,
-        sampling_rate=sampling_rate_value,
-        TM=tm_value,
+        sampling_rate=ctx.sampling_rate,
+        TM=ctx.TM,
         out_fn=out_fn,
         binary_path=binary_path,
     )
@@ -66,19 +140,19 @@ function _run_st_file(
     haskey(raw, "ST") || error("No ST results found in DDA output")
     return _st_from_raw(
         raw["ST"],
-        labels;
+        ctx.labels;
         sfreq=sfreq,
         delays=delays,
-        model=model_terms,
+        model=ctx.model_terms,
         WL=WL,
         WS=WS,
-        derivative_points=derivative_points_value,
-        TM=tm_value,
-        order=order_value,
+        derivative_points=ctx.derivative_points,
+        TM=ctx.TM,
+        order=ctx.order,
         nr_tau=nr_tau,
-        sampling_rate=sampling_rate_value,
+        sampling_rate=ctx.sampling_rate,
         out_fn=out_fn,
-        selected_channels=selected_channels,
+        selected_channels=ctx.selected_channels,
     )
 end
 
@@ -107,38 +181,40 @@ function _run_ct_file(
     sampling_rate=DDADefaults.SAMPLING_RATE,
     TM::Union{Int, Nothing}=nothing,
 )::CTResult
-    selected_channels = Runner._normalize_channels(channels)
-    length(selected_channels) >= 2 || error("CT analysis requires at least 2 channels, got $(length(selected_channels))")
-
-    labels = _resolve_labels(file_path, selected_channels, channel_labels)
-    pair_labels = _pair_labels(labels)
-    model_terms, derivative_points_value, order_value = _resolve_model_configuration(
-        model,
-        derivative_points,
-        dm,
-        order,
-        nr_tau,
+    ctx = _file_run_context(
+        file_path,
+        channels;
+        channel_labels=channel_labels,
+        model=model,
+        derivative_points=derivative_points,
+        dm=dm,
+        order=order,
+        nr_tau=nr_tau,
+        sampling_rate=sampling_rate,
+        delays=delays,
+        TM=TM,
     )
-    sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
-    tm_value = Runner._resolve_tm(Int[delays...], TM)
+    length(ctx.selected_channels) >= 2 || error("CT analysis requires at least 2 channels, got $(length(ctx.selected_channels))")
+
+    pair_labels = _pair_labels(ctx.labels)
     raw_pairs = StructuredChannelData[]
 
-    for pair_channels in _pair_channel_sets(selected_channels)
-        raw = run_analysis_structured(;
-            file_path=file_path,
-            channels=pair_channels,
-            flavors=["CT"],
+    for pair_channels in _pair_channel_sets(ctx.selected_channels)
+        raw = _run_file_flavor(
+            file_path,
+            pair_channels,
+            "CT";
             WL=WL,
             WS=WS,
-            ct_window_length=ct_wl,
-            ct_window_step=ct_ws,
-            delays=Int[delays...],
-            model=model_terms,
-            derivative_points=derivative_points_value,
-            order=order_value,
+            ct_wl=ct_wl,
+            ct_ws=ct_ws,
+            delays=delays,
+            model_terms=ctx.model_terms,
+            derivative_points=ctx.derivative_points,
+            order=ctx.order,
             nr_tau=nr_tau,
-            sampling_rate=sampling_rate_value,
-            TM=tm_value,
+            sampling_rate=ctx.sampling_rate,
+            TM=ctx.TM,
             out_fn=out_fn,
             binary_path=binary_path,
         )
@@ -153,16 +229,16 @@ function _run_ct_file(
         pair_labels;
         sfreq=sfreq,
         delays=delays,
-        model=model_terms,
+        model=ctx.model_terms,
         WL=ct_wl,
         WS=ct_ws,
-        derivative_points=derivative_points_value,
-        TM=tm_value,
-        order=order_value,
+        derivative_points=ctx.derivative_points,
+        TM=ctx.TM,
+        order=ctx.order,
         nr_tau=nr_tau,
-        sampling_rate=sampling_rate_value,
+        sampling_rate=ctx.sampling_rate,
         out_fn=out_fn,
-        selected_channels=selected_channels,
+        selected_channels=ctx.selected_channels,
     )
 end
 
@@ -190,32 +266,36 @@ function _run_de_file(
     sampling_rate=DDADefaults.SAMPLING_RATE,
     TM::Union{Int, Nothing}=nothing,
 )::DEResult
-    selected_channels = Runner._normalize_channels(channels)
-    model_terms, derivative_points_value, order_value = _resolve_model_configuration(
-        model,
-        derivative_points,
-        dm,
-        order,
-        nr_tau,
+    ctx = _file_run_context(
+        file_path,
+        channels;
+        channel_labels=nothing,
+        model=model,
+        derivative_points=derivative_points,
+        dm=dm,
+        order=order,
+        nr_tau=nr_tau,
+        sampling_rate=sampling_rate,
+        delays=delays,
+        TM=TM,
+        resolve_labels=false,
     )
-    sampling_rate_value = Runner._normalize_sampling_rate(sampling_rate)
-    tm_value = Runner._resolve_tm(Int[delays...], TM)
 
-    raw = run_analysis_structured(;
-        file_path=file_path,
-        channels=selected_channels,
-        flavors=["DE"],
+    raw = _run_file_flavor(
+        file_path,
+        ctx.selected_channels,
+        "DE";
         WL=WL,
         WS=WS,
-        ct_window_length=ct_wl,
-        ct_window_step=ct_ws,
-        delays=Int[delays...],
-        model=model_terms,
-        derivative_points=derivative_points_value,
-        order=order_value,
+        ct_wl=ct_wl,
+        ct_ws=ct_ws,
+        delays=delays,
+        model_terms=ctx.model_terms,
+        derivative_points=ctx.derivative_points,
+        order=ctx.order,
         nr_tau=nr_tau,
-        sampling_rate=sampling_rate_value,
-        TM=tm_value,
+        sampling_rate=ctx.sampling_rate,
+        TM=ctx.TM,
         out_fn=out_fn,
         binary_path=binary_path,
     )
@@ -225,15 +305,15 @@ function _run_de_file(
         raw["DE"];
         sfreq=sfreq,
         delays=delays,
-        model=model_terms,
+        model=ctx.model_terms,
         WL=ct_wl,
         WS=ct_ws,
-        derivative_points=derivative_points_value,
-        TM=tm_value,
-        order=order_value,
+        derivative_points=ctx.derivative_points,
+        TM=ctx.TM,
+        order=ctx.order,
         nr_tau=nr_tau,
-        sampling_rate=sampling_rate_value,
+        sampling_rate=ctx.sampling_rate,
         out_fn=out_fn,
-        selected_channels=selected_channels,
+        selected_channels=ctx.selected_channels,
     )
 end

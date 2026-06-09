@@ -12,7 +12,7 @@ For stride=4 (ST/CT): 3 coefficients + 1 error per channel.
 For stride=2 (CD): 1 coefficient + 1 error per directed pair.
 For stride=1 (DE/SY): 1 value (ergodicity/synchronization measure).
 """
-function parse_output_file_structured(filepath::String, stride::Integer)::Vector{StructuredChannelData}
+function _read_numeric_rows(filepath::String)::Vector{Vector{Float64}}
     lines = readlines(filepath)
     data_rows = Vector{Vector{Float64}}()
 
@@ -25,6 +25,11 @@ function parse_output_file_structured(filepath::String, stride::Integer)::Vector
         push!(data_rows, Float64[v for v in values])
     end
 
+    return data_rows
+end
+
+function parse_output_file_structured(filepath::String, stride::Integer)::Vector{StructuredChannelData}
+    data_rows = _read_numeric_rows(filepath)
     isempty(data_rows) && return StructuredChannelData[]
 
     num_data_cols = length(data_rows[1]) - 2
@@ -194,25 +199,34 @@ function _binary_payload_matrix(
     return A
 end
 
+function _coefficient_arrays(
+    channels::Vector{StructuredChannelData},
+)::Tuple{Array{Float64, 3}, Matrix{Float64}}
+    n_entities = length(channels)
+    n_windows = isempty(channels) ? 0 : length(channels[1].timepoints)
+    n_coefficients = n_windows == 0 ? 0 : length(channels[1].timepoints[1].coefficients)
+    coefficients = Array{Float64, 3}(undef, n_entities, n_windows, n_coefficients)
+    errors = Matrix{Float64}(undef, n_entities, n_windows)
+
+    for (entity_idx, channel_data) in enumerate(channels)
+        for (window_idx, tp) in enumerate(channel_data.timepoints)
+            for (coefficient_idx, coeff) in enumerate(tp.coefficients)
+                coefficients[entity_idx, window_idx, coefficient_idx] = coeff
+            end
+            errors[entity_idx, window_idx] = tp.error
+        end
+    end
+
+    return coefficients, errors
+end
+
 # =============================================================================
 # LEGACY PARSING (kept for backward compat)
 # =============================================================================
 
 """Parse output file extracting only the first coefficient (legacy helper)."""
 function parse_output_file(filepath::String, stride::Integer)::Matrix{Float64}
-    lines = readlines(filepath)
-    isempty(lines) && return Matrix{Float64}(undef, 0, 0)
-
-    data_rows = Vector{Vector{Float64}}()
-    for line in lines
-        stripped = strip(line)
-        (isempty(stripped) || startswith(stripped, '#')) && continue
-        parts = split(stripped)
-        values = tryparse.(Float64, parts)
-        all(v -> v !== nothing, values) || continue
-        push!(data_rows, Float64[v for v in values])
-    end
-
+    data_rows = _read_numeric_rows(filepath)
     isempty(data_rows) && return Matrix{Float64}(undef, 0, 0)
 
     num_timepoints = length(data_rows)
@@ -268,20 +282,7 @@ function _pack_variant_result(
     channel_labels::Union{Vector{String}, Nothing},
 )::VariantResultData
     n_entities = length(channels)
-    n_windows = isempty(channels) ? 0 : length(channels[1].timepoints)
-    n_coeffs = n_windows == 0 ? 0 : length(channels[1].timepoints[1].coefficients)
-
-    coefficients = Array{Float64,3}(undef, n_entities, n_windows, n_coeffs)
-    errors = Matrix{Float64}(undef, n_entities, n_windows)
-
-    for (entity_idx, channel_data) in enumerate(channels)
-        for (window_idx, tp) in enumerate(channel_data.timepoints)
-            for (coeff_idx, coeff) in enumerate(tp.coefficients)
-                coefficients[entity_idx, window_idx, coeff_idx] = coeff
-            end
-            errors[entity_idx, window_idx] = tp.error
-        end
-    end
+    coefficients, errors = _coefficient_arrays(channels)
 
     raw_T = _extract_raw_T(channels)
     T = _extract_raw_T_bounds(channels)

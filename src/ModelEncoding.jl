@@ -115,30 +115,45 @@ monomial_to_text([1, 2])       # "x_1 * x_2"
 monomial_to_text([0, 1]; tau_values=[7, 10])  # "x(t-7)"
 ```
 """
-function monomial_to_text(monomial::Vector{Int}; tau_values::Union{Vector{Int},Nothing}=nothing)::String
+function _monomial_factor_counts(monomial::Vector{Int})::Vector{Pair{Int,Int}}
     factors = filter(x -> x != 0, monomial)
-    isempty(factors) && return "1"
-
     counts = Dict{Int,Int}()
     for f in factors
         counts[f] = get(counts, f, 0) + 1
     end
+    return [k => counts[k] for k in sort(collect(keys(counts)))]
+end
+
+function _format_monomial(
+    monomial::Vector{Int};
+    tau_values::Union{Vector{Int},Nothing},
+    latex::Bool,
+)::String
+    counts = _monomial_factor_counts(monomial)
+    isempty(counts) && return "1"
 
     parts = String[]
-    for k in sort(collect(keys(counts)))
-        exp = counts[k]
+    for (k, exp) in counts
         if tau_values !== nothing && k <= length(tau_values)
             base = "x(t-$(tau_values[k]))"
+        elseif latex
+            base = "x_{$k}"
         else
             base = "x_$k"
         end
         if exp == 1
             push!(parts, base)
+        elseif latex
+            push!(parts, "$(base)^{$exp}")
         else
             push!(parts, "$(base)^$exp")
         end
     end
-    return join(parts, " * ")
+    return join(parts, latex ? " \\cdot " : " * ")
+end
+
+function monomial_to_text(monomial::Vector{Int}; tau_values::Union{Vector{Int},Nothing}=nothing)::String
+    return _format_monomial(monomial; tau_values=tau_values, latex=false)
 end
 
 """
@@ -147,29 +162,7 @@ end
 Convert a monomial tuple to a LaTeX representation.
 """
 function monomial_to_latex(monomial::Vector{Int}; tau_values::Union{Vector{Int},Nothing}=nothing)::String
-    factors = filter(x -> x != 0, monomial)
-    isempty(factors) && return "1"
-
-    counts = Dict{Int,Int}()
-    for f in factors
-        counts[f] = get(counts, f, 0) + 1
-    end
-
-    parts = String[]
-    for k in sort(collect(keys(counts)))
-        exp = counts[k]
-        if tau_values !== nothing && k <= length(tau_values)
-            base = "x(t-$(tau_values[k]))"
-        else
-            base = "x_{$k}"
-        end
-        if exp == 1
-            push!(parts, base)
-        else
-            push!(parts, "$(base)^{$exp}")
-        end
-    end
-    return join(parts, " \\cdot ")
+    return _format_monomial(monomial; tau_values=tau_values, latex=true)
 end
 
 """

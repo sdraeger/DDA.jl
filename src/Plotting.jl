@@ -26,6 +26,18 @@ function _ensure_plots()
     end
 end
 
+_entity_labels(result::STResult) = result.channel_labels
+_entity_labels(result::CTResult) = result.pair_labels
+
+function _plot_x_axis(result; use_time::Bool, sfreq::Union{Float64,Nothing})
+    if use_time && !isempty(result.t)
+        return result.t, "t"
+    elseif use_time && sfreq !== nothing
+        return result.window_starts ./ sfreq, "Time (s)"
+    end
+    return 1:n_windows(result), "Window"
+end
+
 # =============================================================================
 # plot_coefficients
 # =============================================================================
@@ -72,18 +84,8 @@ function _plot_coefficients_impl(
     ch_idx = something(channels, collect(1:nc))
     k_idx = something(coeff_indices, collect(1:nk))
 
-    labels = result isa STResult ? result.channel_labels : result.pair_labels
-
-    if use_time && !isempty(result.t)
-        x = result.t
-        xlabel = "t"
-    elseif use_time && sfreq !== nothing
-        x = result.window_starts ./ sfreq
-        xlabel = "Time (s)"
-    else
-        x = 1:n_windows(result)
-        xlabel = "Window"
-    end
+    labels = _entity_labels(result)
+    x, xlabel = _plot_x_axis(result; use_time=use_time, sfreq=sfreq)
 
     plots = []
     for ki in k_idx
@@ -133,18 +135,8 @@ function _plot_errors_impl(
     P = @eval Plots
     nc = size(result.errors, 1)
     ch_idx = something(channels, collect(1:nc))
-    labels = result isa STResult ? result.channel_labels : result.pair_labels
-
-    if use_time && !isempty(result.t)
-        x = result.t
-        xlabel = "t"
-    elseif use_time && sfreq !== nothing
-        x = result.window_starts ./ sfreq
-        xlabel = "Time (s)"
-    else
-        x = 1:n_windows(result)
-        xlabel = "Window"
-    end
+    labels = _entity_labels(result)
+    x, xlabel = _plot_x_axis(result; use_time=use_time, sfreq=sfreq)
 
     p = Base.invokelatest(P.plot;
         title="Reconstruction Error", xlabel=xlabel, ylabel="Error",
@@ -188,18 +180,8 @@ function _plot_heatmap_impl(
 )
     P = @eval Plots
     data_2d = result.coefficients[:, :, coeff_index]
-    labels = result isa STResult ? result.channel_labels : result.pair_labels
-
-    if use_time && !isempty(result.t)
-        x = result.t
-        xlabel = "t"
-    elseif use_time && sfreq !== nothing
-        x = result.window_starts ./ sfreq
-        xlabel = "Time (s)"
-    else
-        x = 1:n_windows(result)
-        xlabel = "Window"
-    end
+    labels = _entity_labels(result)
+    x, xlabel = _plot_x_axis(result; use_time=use_time, sfreq=sfreq)
 
     abs_max = maximum(abs, data_2d)
     clims = (something(vmin, -abs_max), something(vmax, abs_max))
@@ -238,17 +220,7 @@ function _plot_ergodicity_impl(
     use_time, sfreq, figsize,
 )
     P = @eval Plots
-
-    if use_time && !isempty(result.t)
-        x = result.t
-        xlabel = "t"
-    elseif use_time && sfreq !== nothing
-        x = result.window_starts ./ sfreq
-        xlabel = "Time (s)"
-    else
-        x = 1:n_windows(result)
-        xlabel = "Window"
-    end
+    x, xlabel = _plot_x_axis(result; use_time=use_time, sfreq=sfreq)
 
     p = Base.invokelatest(P.plot, x, result.ergodicity;
         title="Dynamical Ergodicity",

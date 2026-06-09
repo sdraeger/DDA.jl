@@ -111,27 +111,6 @@ function _time_axes(
     return T, t, window_starts, window_ends
 end
 
-function _coefficient_arrays(
-    channels::Vector{StructuredChannelData},
-)::Tuple{Array{Float64, 3}, Matrix{Float64}}
-    n_entities = length(channels)
-    n_windows = length(channels[1].timepoints)
-    n_coefficients = isempty(channels[1].timepoints) ? 0 : length(channels[1].timepoints[1].coefficients)
-    coefficients = Array{Float64, 3}(undef, n_entities, n_windows, n_coefficients)
-    errors = Matrix{Float64}(undef, n_entities, n_windows)
-
-    for (entity_idx, channel_data) in enumerate(channels)
-        for (window_idx, tp) in enumerate(channel_data.timepoints)
-            for (coefficient_idx, coeff) in enumerate(tp.coefficients)
-                coefficients[entity_idx, window_idx, coefficient_idx] = coeff
-            end
-            errors[entity_idx, window_idx] = tp.error
-        end
-    end
-
-    return coefficients, errors
-end
-
 function _st_from_raw(
     channels::Vector{StructuredChannelData},
     labels::Vector{String};
@@ -148,7 +127,7 @@ function _st_from_raw(
     out_fn::Union{String, Nothing},
     selected_channels::Vector{Int},
 )::STResult
-    coefficients, errors = _coefficient_arrays(channels)
+    coefficients, errors = Runner._coefficient_arrays(channels)
     T, t, win_starts, win_ends = _time_axes(
         channels,
         derivative_points,
@@ -191,7 +170,7 @@ function _ct_from_raw(
     out_fn::Union{String, Nothing},
     selected_channels::Vector{Int},
 )::CTResult
-    coefficients, errors = _coefficient_arrays(pairs)
+    coefficients, errors = Runner._coefficient_arrays(pairs)
     T, t, win_starts, win_ends = _time_axes(
         pairs,
         derivative_points,
