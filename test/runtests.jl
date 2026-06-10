@@ -8,6 +8,7 @@ include("test_runner.jl")
 # New module tests
 include("test_results.jl")
 include("test_model_encoding.jl")
+include("test_structure_selection.jl")
 include("test_batch.jl")
 include("test_stats.jl")
 include("test_api.jl")

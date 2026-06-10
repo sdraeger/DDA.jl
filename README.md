@@ -77,6 +77,34 @@ println(size(result.ST))
 println(size(result.SY))
 ```
 
+## Structure Selection
+
+`structure_selection` evaluates explicit candidate `-MODEL` and `-TAU`
+combinations with the existing `run_DDA` path and returns the lowest-error
+candidate.
+
+```julia
+selection = structure_selection(
+    file_path="recording.ascii",
+    channels=[1, 2],
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    candidate_models=[[1, 2, 6], [1, 2, 10]],
+    candidate_delays=[[7, 10], [10, 20]],
+    derivative_points=4,
+    order=3,
+    WL=3000,
+    WS=200,
+    input_format=:ascii,
+)
+
+println(selection.best_model)
+println(selection.best_delays)
+println(selection.best_score)
+```
+
+Candidate models use the same encoding as `run_DDA`: either vectors of binary
+`-MODEL` indices or matrices whose rows are monomial encodings.
+
 The structured variant is also available:
 
 ```julia

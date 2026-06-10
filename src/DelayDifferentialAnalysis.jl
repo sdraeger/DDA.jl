@@ -110,6 +110,11 @@ export DDARunner, run_DDA
 export StructuredTimepoint, StructuredChannelData
 export run_analysis_structured, parse_output_file_structured
 
+# --- Structure selection ---
+include("StructureSelection.jl")
+using .StructureSelection
+export StructureSelectionTrial, StructureSelectionResult, structure_selection
+
 # --- High-level API ---
 include("API.jl")
 using .API
