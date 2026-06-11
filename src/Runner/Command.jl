@@ -14,9 +14,12 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     push!(args, "-OUT_FN", output_base)
 
     # Channels are already 1-based for Julia callers and for the binary.
-    push!(args, "-CH_list")
-    for ch in request.channels
-        push!(args, string(ch))
+    # When omitted, the binary handles its own default channel behavior.
+    if request.channels !== nothing
+        push!(args, "-CH_list")
+        for ch in request.channels
+            push!(args, string(ch))
+        end
     end
 
     # SELECT mask
@@ -32,10 +35,13 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
         push!(args, string(p))
     end
 
-    # Delay values
-    push!(args, "-TAU")
-    for d in request.delay_params.delays
-        push!(args, string(d))
+    # Delay values are omitted when a tau file is provided; the binary then
+    # reads delays from `-TAU_file` instead of direct `-TAU` values.
+    if !("-TAU_file" in request.passthrough_args)
+        push!(args, "-TAU")
+        for d in request.delay_params.delays
+            push!(args, string(d))
+        end
     end
 
     # Window parameters. `-WLms` and `-WSms` are special binary flags and are

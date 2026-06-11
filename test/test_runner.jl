@@ -604,6 +604,21 @@ end
             @test err !== nothing
             @test occursin("Input file not found", string(err))
 
+            err = nothing
+            try
+                run_DDA(;
+                    file_path="/nonexistent/path/to/file.edf",
+                    flavors=["ST"],
+                    binary_path=fake_binary,
+                )
+            catch e
+                err = e
+            end
+
+            @test err !== nothing
+            @test occursin("Input file not found", string(err))
+            @test !occursin("channels", string(err))
+
             @test_throws MethodError run_DDA(;
                 file_path="test.edf",
                 channels=[1],
@@ -663,6 +678,42 @@ end
                 window_length=200,
                 window_step=100,
             )
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "Command building omits CH_list when channels are not provided" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            request = DDARequest(
+                "test.edf",
+                nothing,
+                ["ST"];
+                WL=200,
+                WS=100,
+            )
+            cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
+                runner,
+                request,
+                "/tmp/no_channels_output",
+            )
+            argv = collect(DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                request,
+                "/tmp/no_channels_output",
+            ))
+
+            @test !("-CH_list" in argv)
+            @test "-SELECT" in argv
+            @test "-MODEL" in argv
+            @test "-TAU" in argv
+            if !Sys.iswindows()
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/no_channels_output -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 3 -order 4 -nr_tau 2"
+            end
         finally
             rm(fake_binary, force=true)
         end
@@ -916,8 +967,43 @@ end
             @test !("WN_list" in argv)
             @test argv[(findfirst(==("-WN_list"), argv) + 1):end] == ["4", "8", "12"]
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/passthrough_out -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -dm 3 -order 4 -nr_tau 2 -WL_CT 33 -WS_CT 22 -TAU_file /tmp/tau_values.txt -TAU2 11 12 -MODEL2 2 5 9 -NoNorm -WN_list 4 8 12"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/passthrough_out -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -dm 3 -order 4 -nr_tau 2 -WL_CT 33 -WS_CT 22 -TAU_file /tmp/tau_values.txt -TAU2 11 12 -MODEL2 2 5 9 -NoNorm -WN_list 4 8 12"
             end
+        finally
+            rm(fake_binary, force=true)
+        end
+    end
+
+    @testset "tau_file suppresses direct TAU values" begin
+        fake_binary = tempname()
+        touch(fake_binary)
+
+        try
+            runner = DDARunner(fake_binary)
+            request = DDARequest(
+                "test.edf",
+                [1, 2],
+                ["ST"];
+                delays=[99, 100],
+                tau_file="/tmp/tau_values.txt",
+                nr_tau=2,
+            )
+            cmd = DelayDifferentialAnalysis.Runner.build_command(
+                runner,
+                request,
+                "/tmp/tau_file_out",
+            )
+            cmd_str = DelayDifferentialAnalysis.Runner.build_command_string(
+                runner,
+                request,
+                "/tmp/tau_file_out",
+            )
+            argv = collect(cmd)
+
+            @test "-TAU_file" in argv
+            @test argv[findfirst(==("-TAU_file"), argv) + 1] == "/tmp/tau_values.txt"
+            @test !("-TAU" in argv)
+            @test !occursin(" -TAU 99 100 ", " $cmd_str ")
         finally
             rm(fake_binary, force=true)
         end

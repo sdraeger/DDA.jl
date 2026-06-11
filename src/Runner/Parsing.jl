@@ -319,11 +319,12 @@ end
 
 function parse_results_legacy(request::DDARequest, output_base::String)::Vector{VariantResultData}
     results = VariantResultData[]
-    base_labels = _resolve_requested_channel_labels(
-        request.file_path,
-        request.channels;
-        fallback_prefix="Channel ",
-    )
+    base_labels = request.channels === nothing ? nothing :
+                  _resolve_requested_channel_labels(
+                      request.file_path,
+                      request.channels;
+                      fallback_prefix="Channel ",
+                  )
 
     for variant_abbrev in request.variants
         variant = get_variant_by_abbrev(variant_abbrev)
@@ -335,7 +336,9 @@ function parse_results_legacy(request::DDARequest, output_base::String)::Vector{
         channels = parse_output_file_structured(actual_file, variant.stride)
         isempty(channels) && continue
 
-        variant_labels = _channel_labels_for_variant(variant, base_labels)
+        variant_labels = base_labels === nothing ?
+                         _generic_channel_labels(length(channels)) :
+                         _channel_labels_for_variant(variant, base_labels)
         push!(
             results,
             _pack_variant_result(
@@ -348,6 +351,10 @@ function parse_results_legacy(request::DDARequest, output_base::String)::Vector{
         )
     end
     return results
+end
+
+function _generic_channel_labels(count::Integer)::Vector{String}
+    return ["Channel $idx" for idx in 1:Int(count)]
 end
 
 # =============================================================================

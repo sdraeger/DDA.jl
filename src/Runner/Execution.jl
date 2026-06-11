@@ -110,7 +110,7 @@ function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{
 end
 
 """
-    run_analysis_structured(; file_path, channels, flavors, binary_path=nothing, kwargs...)
+    run_analysis_structured(; file_path, channels=nothing, flavors, binary_path=nothing, kwargs...)
 
 Execute DDA without constructing a `DDARequest` explicitly.
 """
@@ -129,7 +129,6 @@ function run_analysis_structured(;
     end
 
     file_path !== nothing || error("`file_path` keyword is required")
-    channels !== nothing || error("`channels` keyword is required")
     runner_obj = DDARunner(; binary_path=binary_path)
     request_obj = DDARequest(file_path, channels, flavors; kwargs...)
     return _run_analysis_structured(runner_obj, request_obj)
@@ -162,11 +161,12 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
     end
 
     primary = first(variant_results)
-    channel_labels = _resolve_requested_channel_labels(
-        request.file_path,
-        request.channels;
-        fallback_prefix="Channel ",
-    )
+    channel_labels = request.channels === nothing ? something(primary.channel_labels, String[]) :
+                     _resolve_requested_channel_labels(
+                         request.file_path,
+                         request.channels;
+                         fallback_prefix="Channel ",
+                     )
 
     return DDAResult(
         analysis_id, request.file_path, channel_labels,
@@ -177,7 +177,7 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
 end
 
 """
-    run_DDA(; file_path, channels, flavors, binary_path=nothing, kwargs...)
+    run_DDA(; file_path, channels=nothing, flavors, binary_path=nothing, kwargs...)
 
 Execute the DDA binary without constructing a `DDARequest` explicitly.
 """
@@ -196,7 +196,6 @@ function run_DDA(;
     end
 
     file_path !== nothing || error("`file_path` keyword is required")
-    channels !== nothing || error("`channels` keyword is required")
     runner_obj = DDARunner(; binary_path=binary_path)
     request_obj = DDARequest(file_path, channels, flavors; kwargs...)
     return _run_DDA(runner_obj, request_obj)

@@ -1,4 +1,7 @@
-function _normalize_channels(channels::AbstractVector{<:Integer})::Vector{Int}
+function _normalize_channels(
+    channels::Union{AbstractVector{<:Integer}, Nothing},
+)::Union{Vector{Int}, Nothing}
+    channels === nothing && return nothing
     normalized = Int[channels...]
     isempty(normalized) && error("At least one channel must be provided")
     any(ch -> ch < 1, normalized) && error("Channels must be 1-based positive indices")
@@ -249,6 +252,8 @@ end
 Create a DDA analysis request.
 
 # Keyword Arguments
+- `channels`: Optional channel list. Pass `nothing` to omit `-CH_list` and let
+  the binary use its own channel behavior.
 - `WL`: Optional analysis window length passed as `-WL`
 - `WS`: Optional window step size passed as `-WS`
 - `ct_window_length`: CT-specific window length passed as `-WL_CT` when set
@@ -269,11 +274,13 @@ Create a DDA analysis request.
 - `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
 - `out_fn`: Optional output base passed to `-OUT_FN`
 - `WL_CT`, `WS_CT`: Preferred aliases for `ct_window_length` and `ct_window_step`
-- `tau_file`, `tau2`, `model2`, `no_norm`, `WN_list`: Raw binary passthrough arguments
+- `tau_file`, `tau2`, `model2`, `no_norm`, `WN_list`: Raw binary passthrough arguments.
+  When `tau_file` is provided, direct `delays` are ignored for shell command
+  generation and the binary receives `-TAU_file` without `-TAU`.
 """
 function DDARequest(
     file_path::AbstractString,
-    channels::AbstractVector{<:Integer},
+    channels::Union{AbstractVector{<:Integer}, Nothing},
     variants::Union{AbstractVector{<:AbstractString}, Nothing}=nothing;
     WL::Union{Int, Nothing}=DDADefaults.WL,
     WS::Union{Int, Nothing}=DDADefaults.WS,

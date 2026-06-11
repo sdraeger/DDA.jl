@@ -45,7 +45,7 @@ DDA analysis request parameters.
 
 # Fields
 - `file_path`: Path to input file (EDF or ASCII)
-- `channels`: Channel indices (1-based, Julia-style)
+- `channels`: Optional channel indices (1-based, Julia-style). `nothing` omits `-CH_list`.
 - `variants`: Variant abbreviations (e.g., ["ST", "SY"])
 - `window_params`: Window length and step
 - `delay_params`: Delay (tau) values
@@ -66,7 +66,7 @@ const OptionalModelSpec = Union{ModelSpec, Nothing}
 
 struct DDARequest
     file_path::String
-    channels::Vector{Int}
+    channels::Union{Vector{Int}, Nothing}
     variants::Vector{String}
     window_params::WindowParameters
     delay_params::DelayParameters
