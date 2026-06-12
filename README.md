@@ -27,6 +27,9 @@ You can resolve the binary in two ways:
 - Pass `binary_path="/full/path/to/run_DDA_AsciiEdf"` to the API call
 - Rely on the existing environment/search-path fallback (`DDA_BINARY_PATH`, `~/.local/bin`, `~/bin`, `/usr/local/bin`, `/opt/dda/bin`)
 
+On Windows, rename the binary to include the `.exe` suffix and pass that path,
+for example `binary_path="C:\\path\\to\\run_DDA_AsciiEdf.exe"`.
+
 ## Quick Start
 
 ```julia
