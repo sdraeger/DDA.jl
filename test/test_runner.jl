@@ -1146,6 +1146,56 @@ end
         end
     end
 
+    @testset "run_DDA can execute without loading results" begin
+        if Sys.iswindows()
+            @info "Skipping shell no-result execution test on Windows"
+        else
+            temp_dir = mktempdir()
+            fake_binary = joinpath(temp_dir, "fake_no_results_dda.sh")
+            input_file = joinpath(temp_dir, "input.txt")
+            output_base = joinpath(temp_dir, "no_results")
+            marker_file = joinpath(temp_dir, "executed.txt")
+
+            open(input_file, "w") do io
+                println(io, "1 2")
+                println(io, "3 4")
+            end
+
+            open(fake_binary, "w") do io
+                write(io, """#!/usr/bin/env sh
+out=''
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    -OUT_FN) out="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf '%s\\n' executed > "$marker_file"
+: > "\$out.info"
+""")
+            end
+            chmod(fake_binary, 0o755)
+
+            try
+                result = run_DDA(;
+                    file_path=input_file,
+                    channels=[1],
+                    flavors=["ST"],
+                    binary_path=fake_binary,
+                    out_fn=output_base,
+                    load_results=false,
+                )
+
+                @test result === nothing
+                @test read(marker_file, String) == "executed\n"
+                info_text = read("$(output_base).info", String)
+                @test startswith(info_text, "$fake_binary -ASCII -DATA_FN")
+            finally
+                rm(temp_dir; recursive=true, force=true)
+            end
+        end
+    end
+
     @testset "run_DDA parses native CT output when mixed with ST" begin
         if Sys.iswindows()
             @info "Skipping mixed CT execution test on Windows"

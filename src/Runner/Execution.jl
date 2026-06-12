@@ -176,10 +176,28 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
     )
 end
 
-"""
-    run_DDA(; file_path, channels=nothing, flavors, binary_path=nothing, kwargs...)
+"""Execute the DDA binary without parsing result files into Julia."""
+function _run_DDA_command_only(runner::DDARunner, request::DDARequest)::Nothing
+    if !isfile(request.file_path)
+        error("Input file not found: $(request.file_path)")
+    end
 
-Execute the DDA binary without constructing a `DDARequest` explicitly.
+    output_base, cleanup_output = _resolve_output_base(request)
+    try
+        _run_command(runner, request, output_base)
+    finally
+        _finalize_output_info(runner, request, output_base, cleanup_output)
+        cleanup_output && cleanup_temp_files(output_base, request.variants)
+    end
+    return nothing
+end
+
+"""
+    run_DDA(; file_path, channels=nothing, flavors, binary_path=nothing, load_results=true, kwargs...)
+
+Execute the DDA binary without constructing a `DDARequest` explicitly. Pass
+`load_results=false` to execute the shell command without parsing output files
+into Julia; in that mode the function returns `nothing`.
 """
 function run_DDA(;
     request::Union{DDARequest, Nothing}=nothing,
@@ -188,15 +206,22 @@ function run_DDA(;
     channels::Union{AbstractVector{<:Integer}, Nothing}=nothing,
     flavors::Union{AbstractVector{<:AbstractString}, Nothing}=nothing,
     binary_path::Union{AbstractString, Nothing}=nothing,
+    load_results::Bool=true,
     kwargs...,
-)::DDAResult
+)::Union{DDAResult, Nothing}
     if request !== nothing
         runner_obj = something(runner, DDARunner(; binary_path=binary_path))
-        return _run_DDA(runner_obj, request)
+        if load_results
+            return _run_DDA(runner_obj, request)
+        end
+        return _run_DDA_command_only(runner_obj, request)
     end
 
     file_path !== nothing || error("`file_path` keyword is required")
     runner_obj = DDARunner(; binary_path=binary_path)
     request_obj = DDARequest(file_path, channels, flavors; kwargs...)
-    return _run_DDA(runner_obj, request_obj)
+    if load_results
+        return _run_DDA(runner_obj, request_obj)
+    end
+    return _run_DDA_command_only(runner_obj, request_obj)
 end

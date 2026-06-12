@@ -79,6 +79,9 @@ println(size(result.SY))
 
 `channels` is optional for `run_DDA`. If it is omitted or set to `nothing`, the
 wrapper does not pass `-CH_list` and leaves channel selection to the binary.
+Pass `load_results=false` to execute the binary without parsing output files
+into Julia; the call returns `nothing`. If output files should be kept in this
+mode, pass an explicit `out_fn`.
 
 ## Structure Selection
 
