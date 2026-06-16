@@ -113,7 +113,8 @@ export run_analysis_structured, parse_output_file_structured
 # --- Structure selection ---
 include("StructureSelection.jl")
 using .StructureSelection
-export StructureSelectionTrial, StructureSelectionResult, structure_selection
+export StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection
+export print_structure_selection, write_model_terminal, write_model_LaTeX
 
 # --- High-level API ---
 include("API.jl")

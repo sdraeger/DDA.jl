@@ -105,4 +105,128 @@ using DelayDifferentialAnalysis
         )
         @test_throws ErrorException DelayDifferentialAnalysis.StructureSelection._score_result(result, :unknown)
     end
+
+    @testset "make_MOD generates Claudia-style MOD libraries" begin
+        MOD = make_MOD(1, 2)
+
+        @test MOD == [
+            1 0 0 0 0
+            0 0 1 0 0
+            0 0 0 1 0
+        ]
+
+        @test DelayDifferentialAnalysis.StructureSelection._p_dda(2; nr_delays=2) == [
+            0 1
+            0 2
+            1 1
+            1 2
+            2 2
+        ]
+
+        @test_throws ErrorException make_MOD(1, 2; nr_delays=3)
+        @test_throws MethodError structure_selection(1, 2)
+    end
+
+    @testset "prints MOD and P_DDA as terminal Unicode" begin
+        MOD = make_MOD(1, 2)
+        io = IOBuffer()
+
+        print_structure_selection(io, MOD, 2)
+        text = String(take!(io))
+
+        @test occursin("P_DDA", text)
+        @test occursin("1: [0, 1]", text)
+        @test occursin("MOD rows × P_DDA terms", text)
+        @test occursin("model | 1 | 2 | 3 | 4 | 5", text)
+        @test occursin("1 | ✓ |   |   |   |", text)
+        @test occursin("2 |   |   | ✓ |   |", text)
+        @test occursin("Models", text)
+        @test occursin("ẋ = a₁·x₁", text)
+        @test occursin("ẋ = a₁·x₁²", text)
+        @test occursin("ẋ = a₁·x₁·x₂", text)
+        @test !occursin("\\dot{x}", text)
+    end
+
+    @testset "write_model_LaTeX remains available explicitly" begin
+        MOD = make_MOD(1, 2)
+        P_DDA = DelayDifferentialAnalysis.StructureSelection._p_dda(2)
+        io = IOBuffer()
+
+        write_model_LaTeX(io, MOD, nothing, P_DDA, 3)
+        text = String(take!(io))
+
+        @test occursin("\\dot{x}", text)
+        @test occursin("a_1 x_1 x_2", text)
+    end
+
+    @testset "structure_selection can generate candidate models from make_MOD" begin
+        calls = []
+        scores = Dict(
+            ([1], [7, 10]) => 0.7,
+            ([1], [10, 20]) => 0.6,
+            ([3], [7, 10]) => 0.5,
+            ([3], [10, 20]) => 0.4,
+            ([4], [7, 10]) => 0.3,
+            ([4], [10, 20]) => 0.1,
+        )
+
+        run_once = (; model, delays, kwargs...) -> begin
+            model_vector = Int[model...]
+            delay_vector = Int[delays...]
+            push!(calls, (model=model_vector, delays=delay_vector, kwargs=kwargs))
+            return fake_result(scores[(model_vector, delay_vector)])
+        end
+
+        result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+            run_once;
+            file_path="data.ascii",
+            channels=[1],
+            binary_path="/tmp/run_DDA_AsciiEdf",
+            N_MOD=1,
+            DDAorder=2,
+            candidate_delays=[[7, 10], [10, 20]],
+            derivative_points=4,
+            input_format=:ascii,
+        )
+
+        @test result.best_model == [4]
+        @test result.best_delays == [10, 20]
+        @test result.best_score == 0.1
+        @test length(result.trials) == 6
+        @test calls[1].model == [1]
+        @test calls[1].kwargs[:order] == 2
+        @test calls[1].kwargs[:nr_tau] == 2
+    end
+
+    @testset "structure_selection can expand tau_file rows into delay candidates" begin
+        tau_path = tempname()
+        write(tau_path, "7 10\n32 9\n")
+        calls = []
+
+        run_once = (; model, delays, kwargs...) -> begin
+            push!(calls, (model=Int[model...], delays=Int[delays...], kwargs=kwargs))
+            return fake_result(delays == [32, 9] ? 0.2 : 0.9)
+        end
+
+        try
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                binary_path="/tmp/run_DDA_AsciiEdf",
+                candidate_models=[[1, 2, 6]],
+                tau_file=tau_path,
+                derivative_points=4,
+                order=3,
+            )
+
+            @test result.best_model == [1, 2, 6]
+            @test result.best_delays == [32, 9]
+            @test length(calls) == 2
+            @test calls[1].delays == [7, 10]
+            @test !haskey(calls[1].kwargs, :tau_file)
+        finally
+            rm(tau_path; force=true)
+        end
+    end
 end

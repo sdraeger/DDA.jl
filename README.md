@@ -88,19 +88,36 @@ mode, pass an explicit `out_fn`.
 
 ## Structure Selection
 
-`structure_selection` evaluates explicit candidate `-MODEL` and `-TAU`
-combinations with the existing `run_DDA` path and returns the lowest-error
-candidate.
+`make_MOD` generates the DDA model library `MOD` used by the original
+structure-selection scripts. `N_MOD` is the number of monomial terms per model,
+`DDAorder` is the polynomial order, and `nr_delays` defaults to `2`.
+
+```julia
+MOD = make_MOD(3, 3)
+print_structure_selection(MOD, 3)
+```
+
+The printer writes the `P_DDA` monomial encoding table, a checkmark table where
+each `MOD` column corresponds to a `P_DDA` monomial, and each `MOD` row as a
+Unicode equation for direct terminal inspection, for example
+`ẋ = a₁·x₁ + a₂·x₂²`. The low-level terminal printer is available as
+`write_model_terminal(...)`; `write_model_LaTeX(...)` remains available when
+LaTeX output is needed.
+
+`structure_selection` evaluates candidate `-MODEL` and `-TAU` combinations
+with the existing `run_DDA` path and returns the lowest-error candidate. Pass
+explicit `candidate_models`, an existing `MOD`, or `N_MOD` plus `DDAorder` to
+generate candidates with `make_MOD`.
 
 ```julia
 selection = structure_selection(
     file_path="recording.ascii",
     channels=[1, 2],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    candidate_models=[[1, 2, 6], [1, 2, 10]],
+    N_MOD=3,
+    DDAorder=3,
     candidate_delays=[[7, 10], [10, 20]],
     derivative_points=4,
-    order=3,
     WL=3000,
     WS=200,
     input_format=:ascii,
@@ -112,7 +129,9 @@ println(selection.best_score)
 ```
 
 Candidate models use the same encoding as `run_DDA`: either vectors of binary
-`-MODEL` indices or matrices whose rows are monomial encodings.
+`-MODEL` indices or matrices whose rows are monomial encodings. Instead of
+`candidate_delays`, a tau file can be supplied with `tau_file`; its rows are
+expanded into delay candidates and the selected delay row is returned.
 
 The structured variant is also available:
 
