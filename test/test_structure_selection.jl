@@ -56,6 +56,104 @@ using DelayDifferentialAnalysis
         @test calls[1].kwargs[:nr_tau] == 2
     end
 
+    @testset "joint model scope uses all channels together" begin
+        calls = []
+
+        run_once = (; channels, model, delays, kwargs...) -> begin
+            push!(calls, (channels=Int[channels...], model=Int[model...], delays=Int[delays...], kwargs=kwargs))
+            return fake_result(model == [1, 2, 10] ? 0.1 : 0.5)
+        end
+
+        result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+            run_once;
+            file_path="data.ascii",
+            channels=[1, 2, 3],
+            binary_path="/tmp/run_DDA_AsciiEdf",
+            candidate_models=[[1, 2, 6], [1, 2, 10]],
+            candidate_delays=[[7, 10]],
+            derivative_points=4,
+            order=3,
+            model_scope=:joint,
+        )
+
+        @test result isa StructureSelectionResult
+        @test result.best_model == [1, 2, 10]
+        @test length(calls) == 2
+        @test all(call -> call.channels == [1, 2, 3], calls)
+        @test !haskey(calls[1].kwargs, :model_scope)
+    end
+
+    @testset "per-channel model scope selects one model per channel" begin
+        calls = []
+        scores = Dict(
+            (1, [1, 2, 6]) => 0.1,
+            (1, [1, 2, 10]) => 0.9,
+            (2, [1, 2, 6]) => 0.8,
+            (2, [1, 2, 10]) => 0.2,
+        )
+
+        run_once = (; channels, model, delays, out_fn, kwargs...) -> begin
+            channel = only(channels)
+            model_vector = Int[model...]
+            push!(calls, (
+                channels=Int[channels...],
+                model=model_vector,
+                delays=Int[delays...],
+                out_fn=out_fn,
+                kwargs=kwargs,
+            ))
+            return fake_result(scores[(channel, model_vector)])
+        end
+
+        out_dir = mktempdir()
+        try
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=1:2,
+                binary_path="/tmp/run_DDA_AsciiEdf",
+                candidate_models=[[1, 2, 6], [1, 2, 10]],
+                candidate_delays=[[7, 10]],
+                derivative_points=4,
+                order=3,
+                model_scope="per_channel",
+                out_dir=out_dir,
+            )
+
+            @test result isa PerChannelStructureSelectionResult
+            @test length(result.results) == 2
+            @test result.results[1].channel_index == 1
+            @test result.results[1].channel == 1
+            @test result.results[1].selection.best_model == [1, 2, 6]
+            @test result.results[1].selection.best_score == 0.1
+            @test result.results[2].channel_index == 2
+            @test result.results[2].channel == 2
+            @test result.results[2].selection.best_model == [1, 2, 10]
+            @test result.results[2].selection.best_score == 0.2
+            @test length(calls) == 4
+            @test calls[1].channels == [1]
+            @test calls[3].channels == [2]
+            @test basename(calls[1].out_fn) == "structure_selection_ch1_m1_d1"
+            @test basename(calls[3].out_fn) == "structure_selection_ch2_m1_d1"
+            @test !haskey(calls[1].kwargs, :model_scope)
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "rejects invalid structure-selection model scope" begin
+        @test_throws ErrorException DelayDifferentialAnalysis.StructureSelection._structure_selection(
+            (; kwargs...) -> fake_result(1.0);
+            file_path="data.ascii",
+            channels=[1],
+            candidate_models=[[1, 2, 6]],
+            candidate_delays=[[7, 10]],
+            derivative_points=4,
+            order=3,
+            model_scope=:unknown,
+        )
+    end
+
     @testset "supports matrix model candidates and stable output paths" begin
         out_dir = mktempdir()
         matrix_model = [0 0 1; 0 0 2; 1 1 1]

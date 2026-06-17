@@ -6,6 +6,7 @@ using Statistics
 using ..ModelEncoding: generate_monomials
 using ..Runner: run_DDA
 
+export ChannelStructureSelectionResult, PerChannelStructureSelectionResult
 export StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection
 export print_structure_selection, write_model_terminal, write_model_LaTeX
 
@@ -27,18 +28,32 @@ struct StructureSelectionResult
     trials::Vector{StructureSelectionTrial}
 end
 
+"""Structure-selection result for one input channel in per-channel mode."""
+struct ChannelStructureSelectionResult
+    channel_index::Int
+    channel::Int
+    selection::StructureSelectionResult
+end
+
+"""Result returned by `structure_selection(...; model_scope=:per_channel)`."""
+struct PerChannelStructureSelectionResult
+    results::Vector{ChannelStructureSelectionResult}
+end
+
 """
     structure_selection(; file_path, channels, binary_path=nothing,
         candidate_models=nothing, MOD=nothing, N_MOD=nothing,
         candidate_delays=nothing, tau_file=nothing, derivative_points,
-        order=nothing, DDAorder=nothing, kwargs...)
+        order=nothing, DDAorder=nothing, model_scope=:joint, kwargs...)
 
 Evaluate each candidate model/delay combination with `run_DDA` and return the
 candidate with the smallest ST error score. Candidate models can be supplied
 directly, as a `MOD` matrix from `make_MOD`, or by passing `N_MOD` plus
 `DDAorder`. Delay candidates can be supplied directly or as rows in `tau_file`.
+With `model_scope=:joint`, one model is selected across all channels. With
+`model_scope=:per_channel`, one model is selected independently per channel.
 """
-function structure_selection(; kwargs...)::StructureSelectionResult
+function structure_selection(; kwargs...)::Union{StructureSelectionResult, PerChannelStructureSelectionResult}
     return _structure_selection(run_DDA; kwargs...)
 end
 
@@ -342,8 +357,42 @@ function _structure_selection(
     input_format=nothing,
     metric::Symbol=:mean_error,
     out_dir=nothing,
+    model_scope=:joint,
+    _trial_prefix::AbstractString="structure_selection",
     kwargs...,
-)::StructureSelectionResult
+)::Union{StructureSelectionResult, PerChannelStructureSelectionResult}
+    scope = _normalize_model_scope(model_scope)
+    if scope == :per_channel
+        results = ChannelStructureSelectionResult[]
+        for (channel_idx, channel) in enumerate(_normalize_structure_channels(channels))
+            selection = _structure_selection(
+                run_once;
+                file_path=file_path,
+                channels=[channel],
+                candidate_models=candidate_models,
+                candidate_delays=candidate_delays,
+                MOD=MOD,
+                N_MOD=N_MOD,
+                DDAorder=DDAorder,
+                nr_delays=nr_delays,
+                binary_path=binary_path,
+                derivative_points=derivative_points,
+                order=order,
+                tau_file=tau_file,
+                WL=WL,
+                WS=WS,
+                input_format=input_format,
+                metric=metric,
+                out_dir=out_dir,
+                model_scope=:joint,
+                _trial_prefix="structure_selection_ch$(channel_idx)",
+                kwargs...,
+            )
+            push!(results, ChannelStructureSelectionResult(channel_idx, channel, selection))
+        end
+        return PerChannelStructureSelectionResult(results)
+    end
+
     derivative_points !== nothing || error("`derivative_points` is required for structure selection")
     model_order = _resolve_structure_order(order, DDAorder)
 
@@ -362,7 +411,7 @@ function _structure_selection(
 
     for (model_idx, model) in enumerate(models)
         for (delay_idx, delays) in enumerate(delay_sets)
-            out_fn = _trial_out_fn(output_root, model_idx, delay_idx)
+            out_fn = _trial_out_fn(output_root, model_idx, delay_idx, _trial_prefix)
             result = run_once(;
                 file_path=file_path,
                 channels=channels,
@@ -396,6 +445,22 @@ function _structure_selection(
         best_trial.result,
         trials,
     )
+end
+
+function _normalize_model_scope(model_scope)::Symbol
+    scope = Symbol(String(model_scope))
+    (scope == :joint || scope == :per_channel) && return scope
+    error("`model_scope` must be `:joint` or `:per_channel`, got `$model_scope`")
+end
+
+function _normalize_structure_channels(channels)::Vector{Int}
+    channels === nothing && error("`channels` is required when `model_scope=:per_channel`")
+    channels isa AbstractVector{<:Integer} || error(
+        "`channels` must be an integer vector or range when `model_scope=:per_channel`",
+    )
+    channel_list = Int[channels...]
+    isempty(channel_list) && error("`channels` must contain at least one channel")
+    return channel_list
 end
 
 function _score_result(result, metric::Symbol)::Float64
@@ -532,9 +597,10 @@ function _trial_out_fn(
     output_root::Union{String, Nothing},
     model_idx::Integer,
     delay_idx::Integer,
+    prefix::AbstractString="structure_selection",
 )::Union{String, Nothing}
     output_root === nothing && return nothing
-    return joinpath(output_root, "structure_selection_m$(model_idx)_d$(delay_idx)")
+    return joinpath(output_root, "$(prefix)_m$(model_idx)_d$(delay_idx)")
 end
 
 end # module StructureSelection

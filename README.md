@@ -128,6 +128,12 @@ println(selection.best_delays)
 println(selection.best_score)
 ```
 
+By default, `structure_selection` uses `model_scope=:joint`, which selects one
+model/delay combination for all requested channels together. Pass
+`model_scope=:per_channel` or `model_scope="per_channel"` to run the same
+candidate search independently for each channel and return one selected model
+per channel.
+
 Candidate models use the same encoding as `run_DDA`: either vectors of binary
 `-MODEL` indices or matrices whose rows are monomial encodings. Instead of
 `candidate_delays`, a tau file can be supplied with `tau_file`; its rows are
