@@ -107,7 +107,9 @@ LaTeX output is needed.
 `structure_selection` evaluates candidate `-MODEL` and `-TAU` combinations
 with the existing `run_DDA` path and returns the lowest-error candidate. Pass
 explicit `candidate_models`, an existing `MOD`, or `N_MOD` plus `DDAorder` to
-generate candidates with `make_MOD`.
+generate candidates with `make_MOD`. Pass `delays` as a flat delay pool to
+write Claudia-style `TAU_ALL__...` files for each model symmetry class, or pass
+nested delay vectors for explicit delay candidates.
 
 ```julia
 selection = structure_selection(
@@ -116,7 +118,7 @@ selection = structure_selection(
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     N_MOD=3,
     DDAorder=3,
-    candidate_delays=[[7, 10], [10, 20]],
+    delays=(4 + 1):40,
     derivative_points=4,
     WL=3000,
     WS=200,
@@ -135,9 +137,15 @@ candidate search independently for each channel and return one selected model
 per channel.
 
 Candidate models use the same encoding as `run_DDA`: either vectors of binary
-`-MODEL` indices or matrices whose rows are monomial encodings. Instead of
-`candidate_delays`, a tau file can be supplied with `tau_file`; its rows are
-expanded into delay candidates and the selected delay row is returned.
+`-MODEL` indices or matrices whose rows are monomial encodings. The old
+`candidate_delays` keyword remains as an alias for nested explicit delay
+candidates, but new code should use `delays`. A flat vector or range such as
+`delays=[10, 20, 30]` or `delays=(derivative_points + 1):TM` is treated as a
+delay pool and written to model-specific tau files in one generated artifact
+folder per structure-selection call. Pass `out_dir` to control where that
+folder is created. Artifacts are retained by default for external inspection;
+pass `cleanup_on_error=true` to delete only the generated artifact folder if
+the selection call errors.
 
 The structured variant is also available:
 

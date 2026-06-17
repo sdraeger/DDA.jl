@@ -17,7 +17,11 @@ struct StructureSelectionTrial
     score::Float64
     result::Any
     out_fn::Union{String, Nothing}
+    tau_file::Union{String, Nothing}
 end
+
+StructureSelectionTrial(model, delays, score, result, out_fn) =
+    StructureSelectionTrial(model, delays, score, result, out_fn, nothing)
 
 """Result returned by `structure_selection`."""
 struct StructureSelectionResult
@@ -26,7 +30,11 @@ struct StructureSelectionResult
     best_score::Float64
     best_result::Any
     trials::Vector{StructureSelectionTrial}
+    artifacts_dir::Union{String, Nothing}
 end
+
+StructureSelectionResult(best_model, best_delays, best_score, best_result, trials) =
+    StructureSelectionResult(best_model, best_delays, best_score, best_result, trials, nothing)
 
 """Structure-selection result for one input channel in per-channel mode."""
 struct ChannelStructureSelectionResult
@@ -43,13 +51,15 @@ end
 """
     structure_selection(; file_path, channels, binary_path=nothing,
         candidate_models=nothing, MOD=nothing, N_MOD=nothing,
-        candidate_delays=nothing, tau_file=nothing, derivative_points,
+        delays=nothing, candidate_delays=nothing, derivative_points,
         order=nothing, DDAorder=nothing, model_scope=:joint, kwargs...)
 
 Evaluate each candidate model/delay combination with `run_DDA` and return the
 candidate with the smallest ST error score. Candidate models can be supplied
 directly, as a `MOD` matrix from `make_MOD`, or by passing `N_MOD` plus
-`DDAorder`. Delay candidates can be supplied directly or as rows in `tau_file`.
+`DDAorder`. Pass `delays` as a flat delay pool, such as `(derivative_points + 1):TM`,
+to generate Claudia-style `TAU_ALL__...` files, or as nested vectors for
+explicit delay candidates.
 With `model_scope=:joint`, one model is selected across all channels. With
 `model_scope=:per_channel`, one model is selected independently per channel.
 """
@@ -343,6 +353,7 @@ function _structure_selection(
     file_path,
     channels,
     candidate_models=nothing,
+    delays=nothing,
     candidate_delays=nothing,
     MOD=nothing,
     N_MOD=nothing,
@@ -352,25 +363,91 @@ function _structure_selection(
     derivative_points=nothing,
     order=nothing,
     tau_file=nothing,
+    tau_file_suffix::AbstractString="",
     WL=nothing,
     WS=nothing,
     input_format=nothing,
     metric::Symbol=:mean_error,
     out_dir=nothing,
     model_scope=:joint,
+    cleanup_on_error::Bool=false,
     _trial_prefix::AbstractString="structure_selection",
+    _artifacts_dir::Union{AbstractString, Nothing}=nothing,
+    kwargs...,
+)::Union{StructureSelectionResult, PerChannelStructureSelectionResult}
+    delay_spec = _resolve_structure_delays(delays, candidate_delays, tau_file)
+    artifacts_dir = _resolve_structure_artifacts_dir(delay_spec.mode, out_dir, _artifacts_dir)
+    created_artifacts_dir = delay_spec.mode == :pool && _artifacts_dir === nothing
+
+    try
+        return _structure_selection_resolved(
+            run_once;
+            file_path=file_path,
+            channels=channels,
+            candidate_models=candidate_models,
+            delay_spec=delay_spec,
+            MOD=MOD,
+            N_MOD=N_MOD,
+            DDAorder=DDAorder,
+            nr_delays=nr_delays,
+            binary_path=binary_path,
+            derivative_points=derivative_points,
+            order=order,
+            tau_file_suffix=tau_file_suffix,
+            WL=WL,
+            WS=WS,
+            input_format=input_format,
+            metric=metric,
+            out_dir=out_dir,
+            model_scope=model_scope,
+            cleanup_on_error=cleanup_on_error,
+            _trial_prefix=_trial_prefix,
+            _artifacts_dir=artifacts_dir,
+            kwargs...,
+        )
+    catch
+        if cleanup_on_error && created_artifacts_dir && artifacts_dir !== nothing
+            rm(String(artifacts_dir); recursive=true, force=true)
+        end
+        rethrow()
+    end
+end
+
+function _structure_selection_resolved(
+    run_once::Function;
+    file_path,
+    channels,
+    candidate_models,
+    delay_spec,
+    MOD,
+    N_MOD,
+    DDAorder,
+    nr_delays::Integer,
+    binary_path,
+    derivative_points,
+    order,
+    tau_file_suffix::AbstractString,
+    WL,
+    WS,
+    input_format,
+    metric::Symbol,
+    out_dir,
+    model_scope,
+    cleanup_on_error::Bool,
+    _trial_prefix::AbstractString,
+    _artifacts_dir::Union{AbstractString, Nothing},
     kwargs...,
 )::Union{StructureSelectionResult, PerChannelStructureSelectionResult}
     scope = _normalize_model_scope(model_scope)
     if scope == :per_channel
         results = ChannelStructureSelectionResult[]
         for (channel_idx, channel) in enumerate(_normalize_structure_channels(channels))
-            selection = _structure_selection(
+            selection = _structure_selection_resolved(
                 run_once;
                 file_path=file_path,
                 channels=[channel],
                 candidate_models=candidate_models,
-                candidate_delays=candidate_delays,
+                delay_spec=delay_spec,
                 MOD=MOD,
                 N_MOD=N_MOD,
                 DDAorder=DDAorder,
@@ -378,14 +455,16 @@ function _structure_selection(
                 binary_path=binary_path,
                 derivative_points=derivative_points,
                 order=order,
-                tau_file=tau_file,
+                tau_file_suffix=tau_file_suffix,
                 WL=WL,
                 WS=WS,
                 input_format=input_format,
                 metric=metric,
                 out_dir=out_dir,
                 model_scope=:joint,
+                cleanup_on_error=cleanup_on_error,
                 _trial_prefix="structure_selection_ch$(channel_idx)",
+                _artifacts_dir=_artifacts_dir,
                 kwargs...,
             )
             push!(results, ChannelStructureSelectionResult(channel_idx, channel, selection))
@@ -403,33 +482,65 @@ function _structure_selection(
         DDAorder=model_order,
         nr_delays=nr_delays,
     )
-    delay_sets = _resolve_candidate_delays(candidate_delays, tau_file)
-    output_root = _output_root(out_dir)
+    P_DDA = _p_dda(model_order; nr_delays=nr_delays)
+    output_root = delay_spec.mode == :pool ? String(_artifacts_dir) : _output_root(out_dir)
 
     trials = StructureSelectionTrial[]
     best_trial = nothing
 
-    for (model_idx, model) in enumerate(models)
-        for (delay_idx, delays) in enumerate(delay_sets)
-            out_fn = _trial_out_fn(output_root, model_idx, delay_idx, _trial_prefix)
+    if delay_spec.mode == :explicit
+        for (model_idx, model) in enumerate(models)
+            for (delay_idx, model_delays) in enumerate(delay_spec.values)
+                out_fn = _trial_out_fn(output_root, model_idx, delay_idx, _trial_prefix)
+                result = run_once(;
+                    file_path=file_path,
+                    channels=channels,
+                    flavors=["ST"],
+                    binary_path=binary_path,
+                    model=model,
+                    delays=model_delays,
+                    derivative_points=Int(derivative_points),
+                    order=model_order,
+                    nr_tau=length(model_delays),
+                    WL=WL,
+                    WS=WS,
+                    input_format=input_format,
+                    out_fn=out_fn,
+                    kwargs...,
+                )
+                score = _score_result(result, metric)
+                trial = StructureSelectionTrial(model, model_delays, score, result, out_fn)
+                push!(trials, trial)
+                if best_trial === nothing || trial.score < best_trial.score
+                    best_trial = trial
+                end
+            end
+        end
+    else
+        for (model_idx, model) in enumerate(models)
+            nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
+            tau_rows = _tau_rows(delay_spec.values, nr, sym)
+            tau_path = _write_tau_file(String(_artifacts_dir), nr, sym, tau_file_suffix, tau_rows)
+            out_fn = _trial_out_fn(output_root, model_idx, 1, _trial_prefix)
             result = run_once(;
                 file_path=file_path,
                 channels=channels,
                 flavors=["ST"],
                 binary_path=binary_path,
                 model=model,
-                delays=delays,
+                delays=first(tau_rows),
                 derivative_points=Int(derivative_points),
                 order=model_order,
-                nr_tau=length(delays),
+                nr_tau=nr,
+                tau_file=tau_path,
                 WL=WL,
                 WS=WS,
                 input_format=input_format,
                 out_fn=out_fn,
                 kwargs...,
             )
-            score = _score_result(result, metric)
-            trial = StructureSelectionTrial(model, delays, score, result, out_fn)
+            best_delays, score = _best_tau_row_score(result, metric, tau_rows)
+            trial = StructureSelectionTrial(model, best_delays, score, result, out_fn, tau_path)
             push!(trials, trial)
             if best_trial === nothing || trial.score < best_trial.score
                 best_trial = trial
@@ -444,7 +555,52 @@ function _structure_selection(
         best_trial.score,
         best_trial.result,
         trials,
+        output_root,
     )
+end
+
+function _resolve_structure_delays(delays, candidate_delays, tau_file)
+    tau_file === nothing || error(
+        "`structure_selection` generates `-TAU_file` inputs from `delays`; pass `delays=...` and optionally `tau_file_suffix=...` instead of `tau_file`",
+    )
+    if delays !== nothing && candidate_delays !== nothing
+        error("Pass `delays`, not both `delays` and deprecated `candidate_delays`")
+    end
+    selected = delays !== nothing ? delays : candidate_delays
+    selected === nothing && error("Provide `delays` for structure selection")
+
+    if selected isa AbstractVector{<:Integer}
+        delay_pool = Int[selected...]
+        isempty(delay_pool) && error("`delays` must contain at least one delay")
+        return (mode=:pool, values=delay_pool)
+    end
+
+    return (mode=:explicit, values=_normalize_explicit_delay_sets(selected))
+end
+
+function _normalize_explicit_delay_sets(candidate_delays)::Vector{Vector{Int}}
+    delay_sets = Vector{Vector{Int}}()
+    for delays in candidate_delays
+        delays isa AbstractVector{<:Integer} || error(
+            "`delays` entries must be integer vectors when explicit delay candidates are supplied",
+        )
+        values = Int[delays...]
+        isempty(values) && error("Explicit delay candidates cannot be empty")
+        push!(delay_sets, values)
+    end
+    isempty(delay_sets) && error("`delays` must contain at least one delay candidate")
+    return delay_sets
+end
+
+function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir)
+    if mode == :explicit
+        return artifacts_dir
+    end
+    artifacts_dir !== nothing && return String(artifacts_dir)
+
+    parent = out_dir === nothing ? tempdir() : expanduser(String(out_dir))
+    mkpath(parent)
+    return mktempdir(parent; prefix="structure_selection_")
 end
 
 function _normalize_model_scope(model_scope)::Symbol
@@ -466,16 +622,7 @@ end
 function _score_result(result, metric::Symbol)::Float64
     variant = _find_st_result(result)
     errors = Float64.(vec(getproperty(variant, :errors)))
-    isempty(errors) && error("No ST error values found")
-
-    if metric == :mean_error
-        return mean(errors)
-    elseif metric == :median_error
-        return median(errors)
-    elseif metric == :minimum_error
-        return minimum(errors)
-    end
-    error("Unsupported structure-selection metric `$metric`")
+    return _score_values(errors, metric)
 end
 
 function _find_st_result(result)
@@ -524,30 +671,127 @@ function _models_from_MOD(MOD::AbstractMatrix{<:Integer})::Vector{Any}
     return models
 end
 
-function _resolve_candidate_delays(candidate_delays, tau_file)::Vector{Vector{Int}}
-    if candidate_delays !== nothing
-        return _normalize_candidate_delays(candidate_delays)
-    elseif tau_file !== nothing
-        return _read_tau_file(tau_file)
+function _model_symmetry(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Integer, order::Integer)
+    model_indices = _model_indices(model, P_DDA; nr_delays=nr_delays, order=order)
+    terms = P_DDA[model_indices, :]
+    positive_delays = unique(value for value in vec(terms) if value > 0)
+    nr = length(positive_delays)
+    1 <= nr <= 2 || error("Generated tau files currently support one or two active delay variables, got $nr")
+    nr == 1 && return nr, 0
+
+    mirrored_terms = Matrix{Int}(undef, size(terms)...)
+    for row_idx in 1:size(terms, 1)
+        mirrored_terms[row_idx, :] = _mirror_monomial(terms[row_idx, :])
     end
-    error("Provide `candidate_delays` or `tau_file` for structure selection")
+    sym = sortslices(Matrix{Int}(terms), dims=1) == sortslices(mirrored_terms, dims=1) ? 1 : 0
+    return nr, sym
 end
 
-function _read_tau_file(path)::Vector{Vector{Int}}
-    rows = Vector{Vector{Int}}()
-    for (line_idx, line) in enumerate(readlines(expanduser(String(path))))
-        stripped = strip(line)
-        (isempty(stripped) || startswith(stripped, "#")) && continue
-        values = Int[]
-        for part in split(stripped)
-            parsed = tryparse(Int, part)
-            parsed !== nothing || error("Invalid integer in tau file line $line_idx: $part")
-            push!(values, parsed)
+function _model_indices(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Integer, order::Integer)::Vector{Int}
+    if model isa AbstractVector{<:Integer}
+        indices = Int[model...]
+        all(index -> 1 <= index <= size(P_DDA, 1), indices) || error("Model indices must be in 1:$(size(P_DDA, 1))")
+        return indices
+    elseif model isa AbstractMatrix{<:Integer}
+        size(model, 2) == order || error("Model matrix must have $order columns")
+        row_to_index = Dict(Tuple(P_DDA[idx, :]) => idx for idx in 1:size(P_DDA, 1))
+        indices = Int[]
+        for row_idx in 1:size(model, 1)
+            row = Int[model[row_idx, col_idx] for col_idx in 1:size(model, 2)]
+            any(value -> value < 0 || value > nr_delays, row) && error(
+                "Model matrix row $row_idx has entries outside 0:$nr_delays: $(row)",
+            )
+            key = Tuple(row)
+            haskey(row_to_index, key) || error("Model matrix row $row_idx does not match P_DDA: $(row)")
+            push!(indices, row_to_index[key])
         end
-        isempty(values) || push!(rows, values)
+        return indices
     end
-    isempty(rows) && error("Tau file contains no delay rows: $path")
+    error("Model candidates must be integer vectors or matrices")
+end
+
+function _tau_rows(delay_pool::AbstractVector{<:Integer}, nr::Integer, sym::Integer)::Vector{Vector{Int}}
+    delays = Int[delay_pool...]
+    rows = Vector{Vector{Int}}()
+    if nr == 1
+        for tau in delays
+            push!(rows, [tau])
+        end
+    elseif nr == 2 && sym == 0
+        for tau1 in delays
+            for tau2 in delays
+                tau1 == tau2 && continue
+                push!(rows, [tau1, tau2])
+            end
+        end
+    elseif nr == 2 && sym == 1
+        for idx1 in 1:length(delays)
+            for idx2 in (idx1 + 1):length(delays)
+                push!(rows, [delays[idx1], delays[idx2]])
+            end
+        end
+    else
+        error("Unsupported tau-file structure nr=$nr sym=$sym")
+    end
+    isempty(rows) && error("No tau rows generated for nr=$nr sym=$sym")
     return rows
+end
+
+function _write_tau_file(
+    artifacts_dir::AbstractString,
+    nr::Integer,
+    sym::Integer,
+    suffix::AbstractString,
+    tau_rows::AbstractVector{<:AbstractVector{<:Integer}},
+)::String
+    mkpath(artifacts_dir)
+    path = joinpath(artifacts_dir, "TAU_ALL__$(nr)_$(sym)$(suffix)")
+    isfile(path) && return path
+
+    tmp_path, io = mktemp(artifacts_dir)
+    try
+        for row in tau_rows
+            println(io, join(row, " "))
+        end
+        close(io)
+        mv(tmp_path, path; force=true)
+    catch
+        isopen(io) && close(io)
+        rm(tmp_path; force=true)
+        rethrow()
+    end
+    return path
+end
+
+function _best_tau_row_score(result, metric::Symbol, tau_rows::AbstractVector{<:AbstractVector{<:Integer}})
+    variant = _find_st_result(result)
+    errors = Float64.(getproperty(variant, :errors))
+    scores = _score_error_rows(errors, metric, length(tau_rows))
+    best_idx = argmin(scores)
+    return Int[tau_rows[best_idx]...], scores[best_idx]
+end
+
+function _score_error_rows(errors, metric::Symbol, n_rows::Integer)::Vector{Float64}
+    if errors isa AbstractVector && length(errors) == n_rows
+        return Float64[errors...]
+    elseif ndims(errors) == 2 && size(errors, 1) == n_rows
+        return [_score_values(vec(errors[row_idx, :]), metric) for row_idx in 1:n_rows]
+    elseif ndims(errors) == 2 && size(errors, 2) == n_rows
+        return [_score_values(vec(errors[:, col_idx]), metric) for col_idx in 1:n_rows]
+    end
+    error("ST errors shape $(size(errors)) does not match generated tau-row count $n_rows")
+end
+
+function _score_values(values::AbstractVector{<:Real}, metric::Symbol)::Float64
+    isempty(values) && error("No ST error values found")
+    if metric == :mean_error
+        return mean(Float64.(values))
+    elseif metric == :median_error
+        return median(Float64.(values))
+    elseif metric == :minimum_error
+        return minimum(Float64.(values))
+    end
+    error("Unsupported structure-selection metric `$metric`")
 end
 
 function _normalize_candidate_models(candidate_models)::Vector{Any}
@@ -568,22 +812,6 @@ end
 
 function _is_model_candidate(value)::Bool
     return value isa AbstractVector{<:Integer} || value isa AbstractMatrix{<:Integer}
-end
-
-function _normalize_candidate_delays(candidate_delays)::Vector{Vector{Int}}
-    if candidate_delays isa AbstractVector{<:Integer}
-        return [Int[candidate_delays...]]
-    end
-
-    delay_sets = Vector{Vector{Int}}()
-    for delays in candidate_delays
-        delays isa AbstractVector{<:Integer} || error(
-            "`candidate_delays` entries must be integer vectors",
-        )
-        push!(delay_sets, Int[delays...])
-    end
-    isempty(delay_sets) && error("`candidate_delays` must contain at least one delay set")
-    return delay_sets
 end
 
 function _output_root(out_dir)::Union{String, Nothing}

@@ -13,6 +13,17 @@ using DelayDifferentialAnalysis
         )
     end
 
+    function fake_errors(errors)
+        return (
+            variant_results=[
+                (
+                    variant_id="ST",
+                    errors=Float64.(errors),
+                ),
+            ],
+        )
+    end
+
     @testset "selects the lowest-error model and delay candidate" begin
         calls = []
         scores = Dict(
@@ -56,6 +67,142 @@ using DelayDifferentialAnalysis
         @test calls[1].kwargs[:nr_tau] == 2
     end
 
+    @testset "delays keyword accepts explicit nested delay candidates" begin
+        calls = []
+        scores = Dict(
+            ([1, 2, 6], [7, 10]) => 0.5,
+            ([1, 2, 6], [10, 20]) => 0.2,
+        )
+
+        run_once = (; model, delays, kwargs...) -> begin
+            model_vector = Int[model...]
+            delay_vector = Int[delays...]
+            push!(calls, (model=model_vector, delays=delay_vector, kwargs=kwargs))
+            return fake_result(scores[(model_vector, delay_vector)])
+        end
+
+        result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+            run_once;
+            file_path="data.ascii",
+            channels=[1, 2],
+            binary_path="/tmp/run_DDA_AsciiEdf",
+            candidate_models=[[1, 2, 6]],
+            delays=[[7, 10], [10, 20]],
+            derivative_points=4,
+            order=3,
+        )
+
+        @test result.best_delays == [10, 20]
+        @test length(calls) == 2
+        @test calls[1].delays == [7, 10]
+        @test !haskey(calls[1].kwargs, :tau_file)
+    end
+
+    @testset "flat delay pools generate model-specific tau files" begin
+        calls = []
+
+        run_once = (; model, tau_file, delays, nr_tau, out_fn, kwargs...) -> begin
+            model_vector = Int[model...]
+            push!(calls, (
+                model=model_vector,
+                tau_file=tau_file,
+                delays=Int[delays...],
+                nr_tau=nr_tau,
+                out_fn=out_fn,
+                kwargs=kwargs,
+            ))
+            if model_vector == [1]
+                return fake_errors([0.7, 0.4, 0.6])
+            elseif model_vector == [4]
+                return fake_errors([0.1, 0.8, 0.5])
+            end
+            return fake_errors([0.9])
+        end
+
+        out_dir = mktempdir()
+        try
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                binary_path="/tmp/run_DDA_AsciiEdf",
+                candidate_models=[[1], [4]],
+                delays=10:20:50,
+                derivative_points=4,
+                order=2,
+                nr_delays=2,
+                out_dir=out_dir,
+                tau_file_suffix="_run1",
+            )
+
+            @test result.best_model == [4]
+            @test result.best_delays == [10, 30]
+            @test result.best_score == 0.1
+            @test result.artifacts_dir !== nothing
+            @test dirname(calls[1].tau_file) == result.artifacts_dir
+            @test basename(result.artifacts_dir) |> startswith("structure_selection_")
+            @test sort(basename.(calls[i].tau_file for i in eachindex(calls))) == [
+                "TAU_ALL__1_0_run1",
+                "TAU_ALL__2_1_run1",
+            ]
+            @test read(calls[1].tau_file, String) == "10\n30\n50\n"
+            @test read(calls[2].tau_file, String) == "10 30\n10 50\n30 50\n"
+            @test calls[1].delays == [10]
+            @test calls[1].nr_tau == 1
+            @test calls[2].delays == [10, 30]
+            @test calls[2].nr_tau == 2
+            @test calls[1].kwargs[:flavors] == ["ST"]
+            @test result.trials[1].tau_file == calls[1].tau_file
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "generated tau-file selection maps error rows back to delays" begin
+        run_once = (; kwargs...) -> fake_errors([0.5; 0.2; 0.9])
+
+        out_dir = mktempdir()
+        try
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                candidate_models=[[4]],
+                delays=[10, 20, 30],
+                derivative_points=4,
+                order=2,
+                out_dir=out_dir,
+            )
+
+            @test result.best_delays == [10, 30]
+            @test result.best_score == 0.2
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "generated tau-file artifacts can be cleaned up on error" begin
+        parent_dir = mktempdir()
+
+        try
+            @test_throws ErrorException DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                (; kwargs...) -> error("DDA failed");
+                file_path="data.ascii",
+                channels=[1],
+                candidate_models=[[1]],
+                delays=10:20,
+                derivative_points=4,
+                order=2,
+                out_dir=parent_dir,
+                cleanup_on_error=true,
+            )
+
+            @test isempty(readdir(parent_dir))
+        finally
+            rm(parent_dir; recursive=true, force=true)
+        end
+    end
+
     @testset "joint model scope uses all channels together" begin
         calls = []
 
@@ -70,7 +217,7 @@ using DelayDifferentialAnalysis
             channels=[1, 2, 3],
             binary_path="/tmp/run_DDA_AsciiEdf",
             candidate_models=[[1, 2, 6], [1, 2, 10]],
-            candidate_delays=[[7, 10]],
+            delays=[[7, 10]],
             derivative_points=4,
             order=3,
             model_scope=:joint,
@@ -113,7 +260,7 @@ using DelayDifferentialAnalysis
                 channels=1:2,
                 binary_path="/tmp/run_DDA_AsciiEdf",
                 candidate_models=[[1, 2, 6], [1, 2, 10]],
-                candidate_delays=[[7, 10]],
+                delays=[[7, 10]],
                 derivative_points=4,
                 order=3,
                 model_scope="per_channel",
@@ -147,7 +294,7 @@ using DelayDifferentialAnalysis
             file_path="data.ascii",
             channels=[1],
             candidate_models=[[1, 2, 6]],
-            candidate_delays=[[7, 10]],
+            delays=[[7, 10]],
             derivative_points=4,
             order=3,
             model_scope=:unknown,
@@ -282,7 +429,7 @@ using DelayDifferentialAnalysis
             binary_path="/tmp/run_DDA_AsciiEdf",
             N_MOD=1,
             DDAorder=2,
-            candidate_delays=[[7, 10], [10, 20]],
+            delays=[[7, 10], [10, 20]],
             derivative_points=4,
             input_format=:ascii,
         )
@@ -296,9 +443,7 @@ using DelayDifferentialAnalysis
         @test calls[1].kwargs[:nr_tau] == 2
     end
 
-    @testset "structure_selection can expand tau_file rows into delay candidates" begin
-        tau_path = tempname()
-        write(tau_path, "7 10\n32 9\n")
+    @testset "candidate_delays remains a deprecated alias" begin
         calls = []
 
         run_once = (; model, delays, kwargs...) -> begin
@@ -306,9 +451,28 @@ using DelayDifferentialAnalysis
             return fake_result(delays == [32, 9] ? 0.2 : 0.9)
         end
 
+        result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+            run_once;
+            file_path="data.ascii",
+            channels=[1],
+            binary_path="/tmp/run_DDA_AsciiEdf",
+            candidate_models=[[1, 2, 6]],
+            candidate_delays=[[7, 10], [32, 9]],
+            derivative_points=4,
+            order=3,
+        )
+
+        @test result.best_delays == [32, 9]
+        @test length(calls) == 2
+    end
+
+    @testset "structure_selection rejects tau_file row expansion" begin
+        tau_path = tempname()
+        write(tau_path, "7 10\n32 9\n")
+
         try
-            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
-                run_once;
+            @test_throws ErrorException DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                (; kwargs...) -> fake_result(0.1);
                 file_path="data.ascii",
                 channels=[1],
                 binary_path="/tmp/run_DDA_AsciiEdf",
@@ -317,12 +481,6 @@ using DelayDifferentialAnalysis
                 derivative_points=4,
                 order=3,
             )
-
-            @test result.best_model == [1, 2, 6]
-            @test result.best_delays == [32, 9]
-            @test length(calls) == 2
-            @test calls[1].delays == [7, 10]
-            @test !haskey(calls[1].kwargs, :tau_file)
         finally
             rm(tau_path; force=true)
         end
