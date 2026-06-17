@@ -181,6 +181,42 @@ using DelayDifferentialAnalysis
         end
     end
 
+    @testset "generated tau files honor user path prefix" begin
+        calls = []
+
+        run_once = (; tau_file, kwargs...) -> begin
+            push!(calls, tau_file)
+            return fake_errors([0.5; 0.2; 0.9])
+        end
+
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "tau-files", "TAU_ALL__")
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                candidate_models=[[1], [4]],
+                delays=10:20:50,
+                derivative_points=4,
+                order=2,
+                nr_delays=2,
+                tau_file_prefix=prefix,
+                tau_file_suffix="_run1",
+            )
+
+            @test result.artifacts_dir == dirname(prefix)
+            @test sort(calls) == sort([
+                "$(prefix)1_0_run1",
+                "$(prefix)2_1_run1",
+            ])
+            @test isfile("$(prefix)1_0_run1")
+            @test isfile("$(prefix)2_1_run1")
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
     @testset "generated tau-file artifacts can be cleaned up on error" begin
         parent_dir = mktempdir()
 

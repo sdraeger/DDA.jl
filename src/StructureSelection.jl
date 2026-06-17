@@ -60,6 +60,8 @@ directly, as a `MOD` matrix from `make_MOD`, or by passing `N_MOD` plus
 `DDAorder`. Pass `delays` as a flat delay pool, such as `(derivative_points + 1):TM`,
 to generate Claudia-style `TAU_ALL__...` files, or as nested vectors for
 explicit delay candidates.
+Pass `tau_file_prefix` to choose the full path prefix used for generated tau
+files, for example `/scratch/run42/TAU_ALL__`.
 With `model_scope=:joint`, one model is selected across all channels. With
 `model_scope=:per_channel`, one model is selected independently per channel.
 """
@@ -363,6 +365,7 @@ function _structure_selection(
     derivative_points=nothing,
     order=nothing,
     tau_file=nothing,
+    tau_file_prefix=nothing,
     tau_file_suffix::AbstractString="",
     WL=nothing,
     WS=nothing,
@@ -376,8 +379,19 @@ function _structure_selection(
     kwargs...,
 )::Union{StructureSelectionResult, PerChannelStructureSelectionResult}
     delay_spec = _resolve_structure_delays(delays, candidate_delays, tau_file)
-    artifacts_dir = _resolve_structure_artifacts_dir(delay_spec.mode, out_dir, _artifacts_dir)
-    created_artifacts_dir = delay_spec.mode == :pool && _artifacts_dir === nothing
+    artifacts_dir = _resolve_structure_artifacts_dir(
+        delay_spec.mode,
+        out_dir,
+        _artifacts_dir,
+        tau_file_prefix,
+    )
+    resolved_tau_file_prefix = _resolve_tau_file_prefix(
+        delay_spec.mode,
+        artifacts_dir,
+        tau_file_prefix,
+    )
+    created_artifacts_dir =
+        delay_spec.mode == :pool && _artifacts_dir === nothing && tau_file_prefix === nothing
 
     try
         return _structure_selection_resolved(
@@ -393,6 +407,7 @@ function _structure_selection(
             binary_path=binary_path,
             derivative_points=derivative_points,
             order=order,
+            tau_file_prefix=resolved_tau_file_prefix,
             tau_file_suffix=tau_file_suffix,
             WL=WL,
             WS=WS,
@@ -426,6 +441,7 @@ function _structure_selection_resolved(
     binary_path,
     derivative_points,
     order,
+    tau_file_prefix,
     tau_file_suffix::AbstractString,
     WL,
     WS,
@@ -455,6 +471,7 @@ function _structure_selection_resolved(
                 binary_path=binary_path,
                 derivative_points=derivative_points,
                 order=order,
+                tau_file_prefix=tau_file_prefix,
                 tau_file_suffix=tau_file_suffix,
                 WL=WL,
                 WS=WS,
@@ -520,7 +537,7 @@ function _structure_selection_resolved(
         for (model_idx, model) in enumerate(models)
             nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
             tau_rows = _tau_rows(delay_spec.values, nr, sym)
-            tau_path = _write_tau_file(String(_artifacts_dir), nr, sym, tau_file_suffix, tau_rows)
+            tau_path = _write_tau_file(tau_file_prefix, nr, sym, tau_file_suffix, tau_rows)
             out_fn = _trial_out_fn(output_root, model_idx, 1, _trial_prefix)
             result = run_once(;
                 file_path=file_path,
@@ -592,15 +609,26 @@ function _normalize_explicit_delay_sets(candidate_delays)::Vector{Vector{Int}}
     return delay_sets
 end
 
-function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir)
+function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir, tau_file_prefix)
     if mode == :explicit
         return artifacts_dir
     end
     artifacts_dir !== nothing && return String(artifacts_dir)
+    if tau_file_prefix !== nothing
+        return dirname(expanduser(String(tau_file_prefix)))
+    end
 
     parent = out_dir === nothing ? tempdir() : expanduser(String(out_dir))
     mkpath(parent)
     return mktempdir(parent; prefix="structure_selection_")
+end
+
+function _resolve_tau_file_prefix(mode::Symbol, artifacts_dir, tau_file_prefix)
+    mode == :explicit && return nothing
+    if tau_file_prefix !== nothing
+        return expanduser(String(tau_file_prefix))
+    end
+    return joinpath(String(artifacts_dir), "TAU_ALL__")
 end
 
 function _normalize_model_scope(model_scope)::Symbol
@@ -738,15 +766,15 @@ function _tau_rows(delay_pool::AbstractVector{<:Integer}, nr::Integer, sym::Inte
 end
 
 function _write_tau_file(
-    artifacts_dir::AbstractString,
+    tau_file_prefix::AbstractString,
     nr::Integer,
     sym::Integer,
     suffix::AbstractString,
     tau_rows::AbstractVector{<:AbstractVector{<:Integer}},
 )::String
+    path = "$(tau_file_prefix)$(nr)_$(sym)$(suffix)"
+    artifacts_dir = dirname(path)
     mkpath(artifacts_dir)
-    path = joinpath(artifacts_dir, "TAU_ALL__$(nr)_$(sym)$(suffix)")
-    isfile(path) && return path
 
     tmp_path, io = mktemp(artifacts_dir)
     try
