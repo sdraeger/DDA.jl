@@ -123,7 +123,7 @@ selection = structure_selection(
     WL=3000,
     WS=200,
     input_format=:ascii,
-    tau_file_prefix="/scratch/my-run/TAU_ALL__",
+    tau_file_prefix="/scratch/my-run",
 )
 
 println(selection.best_model)
@@ -144,13 +144,15 @@ candidates, but new code should use `delays`. A flat vector or range such as
 `delays=[10, 20, 30]` or `delays=(derivative_points + 1):TM` is treated as a
 delay pool and written to model-specific tau files in one generated artifact
 folder per structure-selection call. Pass `out_dir` to control where that
-folder is created, or pass `tau_file_prefix` to choose the exact path prefix
-for tau files. For example, `tau_file_prefix="/scratch/my-run/TAU_ALL__"`
-writes files such as `/scratch/my-run/TAU_ALL__1_0` and
-`/scratch/my-run/TAU_ALL__2_1`, avoiding systems where `/tmp` is not writable.
-Artifacts are retained by default for external inspection; pass
-`cleanup_on_error=true` to delete only automatically generated artifact folders
-if the selection call errors.
+folder is created, or pass `tau_file_prefix` to choose the output folder for
+generated tau files and structure-selection outputs. For example,
+`tau_file_prefix="/scratch/my-run"` creates that folder and writes files such
+as `/scratch/my-run/TAU_ALL__1_0`,
+`/scratch/my-run/TAU_ALL__2_1`, and
+`/scratch/my-run/structure_selection_m1_d1_ST`, avoiding systems where `/tmp`
+is not writable. Artifacts are retained by default for external inspection;
+pass `cleanup_on_error=true` to delete only automatically generated artifact
+folders if the selection call errors.
 
 The structured variant is also available:
 

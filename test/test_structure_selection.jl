@@ -181,17 +181,18 @@ using DelayDifferentialAnalysis
         end
     end
 
-    @testset "generated tau files honor user path prefix" begin
+    @testset "generated tau files honor user prefix directory" begin
         calls = []
 
-        run_once = (; tau_file, kwargs...) -> begin
-            push!(calls, tau_file)
-            return fake_errors([0.5; 0.2; 0.9])
+        run_once = (; tau_file, out_fn, kwargs...) -> begin
+            push!(calls, (tau_file=tau_file, out_fn=out_fn))
+            n_rows = length(readlines(tau_file))
+            return fake_errors(fill(1.0, n_rows))
         end
 
         out_dir = mktempdir()
         try
-            prefix = joinpath(out_dir, "tau-files", "TAU_ALL__")
+            prefix = joinpath(out_dir, "RUN1")
             result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
                 run_once;
                 file_path="data.ascii",
@@ -205,13 +206,16 @@ using DelayDifferentialAnalysis
                 tau_file_suffix="_run1",
             )
 
-            @test result.artifacts_dir == dirname(prefix)
-            @test sort(calls) == sort([
-                "$(prefix)1_0_run1",
-                "$(prefix)2_1_run1",
-            ])
-            @test isfile("$(prefix)1_0_run1")
-            @test isfile("$(prefix)2_1_run1")
+            @test result.artifacts_dir == prefix
+            @test isdir(prefix)
+            @test sort(basename.(call.tau_file for call in calls)) == [
+                "TAU_ALL__1_0_run1",
+                "TAU_ALL__2_1_run1",
+            ]
+            @test all(call -> dirname(call.tau_file) == prefix, calls)
+            @test all(call -> dirname(call.out_fn) == prefix, calls)
+            @test isfile(joinpath(prefix, "TAU_ALL__1_0_run1"))
+            @test isfile(joinpath(prefix, "TAU_ALL__2_1_run1"))
         finally
             rm(out_dir; recursive=true, force=true)
         end

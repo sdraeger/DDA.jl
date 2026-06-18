@@ -60,8 +60,8 @@ directly, as a `MOD` matrix from `make_MOD`, or by passing `N_MOD` plus
 `DDAorder`. Pass `delays` as a flat delay pool, such as `(derivative_points + 1):TM`,
 to generate Claudia-style `TAU_ALL__...` files, or as nested vectors for
 explicit delay candidates.
-Pass `tau_file_prefix` to choose the full path prefix used for generated tau
-files, for example `/scratch/run42/TAU_ALL__`.
+Pass `tau_file_prefix` to choose the output folder used for generated tau files
+and structure-selection outputs, for example `/scratch/run42`.
 With `model_scope=:joint`, one model is selected across all channels. With
 `model_scope=:per_channel`, one model is selected independently per channel.
 """
@@ -622,7 +622,7 @@ function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir, 
     end
     artifacts_dir !== nothing && return String(artifacts_dir)
     if tau_file_prefix !== nothing
-        return dirname(expanduser(String(tau_file_prefix)))
+        return expanduser(String(tau_file_prefix))
     end
 
     parent = out_dir === nothing ? tempdir() : expanduser(String(out_dir))
@@ -632,9 +632,6 @@ end
 
 function _resolve_tau_file_prefix(mode::Symbol, artifacts_dir, tau_file_prefix)
     mode == :explicit && return nothing
-    if tau_file_prefix !== nothing
-        return expanduser(String(tau_file_prefix))
-    end
     return joinpath(String(artifacts_dir), "TAU_ALL__")
 end
 
