@@ -49,10 +49,11 @@ struct PerChannelStructureSelectionResult
 end
 
 """
-    structure_selection(; file_path, channels, binary_path=nothing,
+    structure_selection(; file_path, channels=nothing, binary_path=nothing,
         candidate_models=nothing, MOD=nothing, N_MOD=nothing,
         delays=nothing, candidate_delays=nothing, derivative_points,
-        order=nothing, DDAorder=nothing, model_scope=:joint, kwargs...)
+        order=nothing, DDAorder=nothing, model_scope=:joint, prefix=nothing,
+        kwargs...)
 
 Evaluate each candidate model/delay combination with `run_DDA` and return the
 candidate with the smallest ST error score. Candidate models can be supplied
@@ -60,8 +61,8 @@ directly, as a `MOD` matrix from `make_MOD`, or by passing `N_MOD` plus
 `DDAorder`. Pass `delays` as a flat delay pool, such as `(derivative_points + 1):TM`,
 to generate Claudia-style `TAU_ALL__...` files, or as nested vectors for
 explicit delay candidates.
-Pass `tau_file_prefix` to choose the output folder used for generated tau files
-and structure-selection outputs, for example `/scratch/run42`.
+Pass `prefix` to choose the output folder used for generated tau files and
+structure-selection outputs, for example `/scratch/run42`.
 With `model_scope=:joint`, one model is selected across all channels. With
 `model_scope=:per_channel`, one model is selected independently per channel.
 """
@@ -353,7 +354,7 @@ end
 function _structure_selection(
     run_once::Function;
     file_path,
-    channels,
+    channels=nothing,
     candidate_models=nothing,
     delays=nothing,
     candidate_delays=nothing,
@@ -365,7 +366,7 @@ function _structure_selection(
     derivative_points=nothing,
     order=nothing,
     tau_file=nothing,
-    tau_file_prefix=nothing,
+    prefix=nothing,
     tau_file_suffix::AbstractString="",
     WL=nothing,
     WS=nothing,
@@ -378,20 +379,20 @@ function _structure_selection(
     _artifacts_dir::Union{AbstractString, Nothing}=nothing,
     kwargs...,
 )::Union{StructureSelectionResult, PerChannelStructureSelectionResult}
+    haskey(kwargs, :tau_file_prefix) && error("Pass `prefix`, not `tau_file_prefix`")
+
     delay_spec = _resolve_structure_delays(delays, candidate_delays, tau_file)
+    output_prefix = prefix === nothing ? nothing : expanduser(String(prefix))
     artifacts_dir = _resolve_structure_artifacts_dir(
         delay_spec.mode,
         out_dir,
         _artifacts_dir,
-        tau_file_prefix,
+        output_prefix,
     )
-    resolved_tau_file_prefix = _resolve_tau_file_prefix(
-        delay_spec.mode,
-        artifacts_dir,
-        tau_file_prefix,
-    )
+    tau_prefix =
+        delay_spec.mode == :explicit ? nothing : joinpath(String(artifacts_dir), "TAU_ALL__")
     created_artifacts_dir =
-        delay_spec.mode == :pool && _artifacts_dir === nothing && tau_file_prefix === nothing
+        delay_spec.mode == :pool && _artifacts_dir === nothing && output_prefix === nothing
 
     try
         return _structure_selection_resolved(
@@ -407,7 +408,7 @@ function _structure_selection(
             binary_path=binary_path,
             derivative_points=derivative_points,
             order=order,
-            tau_file_prefix=resolved_tau_file_prefix,
+            tau_prefix=tau_prefix,
             tau_file_suffix=tau_file_suffix,
             WL=WL,
             WS=WS,
@@ -441,7 +442,7 @@ function _structure_selection_resolved(
     binary_path,
     derivative_points,
     order,
-    tau_file_prefix,
+    tau_prefix,
     tau_file_suffix::AbstractString,
     WL,
     WS,
@@ -471,7 +472,7 @@ function _structure_selection_resolved(
                 binary_path=binary_path,
                 derivative_points=derivative_points,
                 order=order,
-                tau_file_prefix=tau_file_prefix,
+                tau_prefix=tau_prefix,
                 tau_file_suffix=tau_file_suffix,
                 WL=WL,
                 WS=WS,
@@ -506,9 +507,10 @@ function _structure_selection_resolved(
     best_trial = nothing
 
     if delay_spec.mode == :explicit
-        for (model_idx, model) in enumerate(models)
+        for model in models
+            model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
             for (delay_idx, model_delays) in enumerate(delay_spec.values)
-                out_fn = _trial_out_fn(output_root, model_idx, delay_idx, _trial_prefix)
+                out_fn = _trial_out_fn(output_root, model_id, delay_idx, _trial_prefix)
                 result = run_once(;
                     file_path=file_path,
                     channels=channels,
@@ -534,10 +536,10 @@ function _structure_selection_resolved(
             end
         end
     else
-        for (model_idx, model) in enumerate(models)
+        for model in models
             nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
             tau_rows = _tau_rows(delay_spec.values, nr, sym)
-            tau_path = _write_tau_file(tau_file_prefix, nr, sym, tau_file_suffix, tau_rows)
+            tau_path = _write_tau_file(tau_prefix, nr, sym, tau_file_suffix, tau_rows)
             executable_model = _model_for_tau_file(
                 model,
                 P_DDA;
@@ -545,7 +547,8 @@ function _structure_selection_resolved(
                 order=model_order,
                 nr_tau=nr,
             )
-            out_fn = _trial_out_fn(output_root, model_idx, 1, _trial_prefix)
+            model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
+            out_fn = _trial_out_fn(output_root, model_id, 1, _trial_prefix)
             result = run_once(;
                 file_path=file_path,
                 channels=channels,
@@ -616,23 +619,18 @@ function _normalize_explicit_delay_sets(candidate_delays)::Vector{Vector{Int}}
     return delay_sets
 end
 
-function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir, tau_file_prefix)
+function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir, prefix)
     if mode == :explicit
         return artifacts_dir
     end
     artifacts_dir !== nothing && return String(artifacts_dir)
-    if tau_file_prefix !== nothing
-        return expanduser(String(tau_file_prefix))
+    if prefix !== nothing
+        return expanduser(String(prefix))
     end
 
     parent = out_dir === nothing ? tempdir() : expanduser(String(out_dir))
     mkpath(parent)
     return mktempdir(parent; prefix="structure_selection_")
-end
-
-function _resolve_tau_file_prefix(mode::Symbol, artifacts_dir, tau_file_prefix)
-    mode == :explicit && return nothing
-    return joinpath(String(artifacts_dir), "TAU_ALL__")
 end
 
 function _normalize_model_scope(model_scope)::Symbol
@@ -719,6 +717,12 @@ function _model_symmetry(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Int
     return nr, sym
 end
 
+function _model_filename_id(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Integer, order::Integer)::String
+    indices = model isa AbstractVector{<:Integer} ? Int[model...] :
+              _model_indices(model, P_DDA; nr_delays=nr_delays, order=order)
+    return join(lpad.(string.(indices), 2, '0'), "_")
+end
+
 function _model_for_tau_file(
     model,
     P_DDA::AbstractMatrix{<:Integer};
@@ -800,13 +804,13 @@ function _tau_rows(delay_pool::AbstractVector{<:Integer}, nr::Integer, sym::Inte
 end
 
 function _write_tau_file(
-    tau_file_prefix::AbstractString,
+    tau_prefix::AbstractString,
     nr::Integer,
     sym::Integer,
     suffix::AbstractString,
     tau_rows::AbstractVector{<:AbstractVector{<:Integer}},
 )::String
-    path = "$(tau_file_prefix)$(nr)_$(sym)$(suffix)"
+    path = "$(tau_prefix)$(nr)_$(sym)$(suffix)"
     artifacts_dir = dirname(path)
     mkpath(artifacts_dir)
 
@@ -885,12 +889,12 @@ end
 
 function _trial_out_fn(
     output_root::Union{String, Nothing},
-    model_idx::Integer,
+    model_id::AbstractString,
     delay_idx::Integer,
     prefix::AbstractString="structure_selection",
 )::Union{String, Nothing}
     output_root === nothing && return nothing
-    return joinpath(output_root, "$(prefix)_m$(model_idx)_d$(delay_idx)")
+    return joinpath(output_root, "$(prefix)_$(model_id)_d$(delay_idx)")
 end
 
 end # module StructureSelection

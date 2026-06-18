@@ -202,7 +202,7 @@ using DelayDifferentialAnalysis
                 derivative_points=4,
                 order=2,
                 nr_delays=2,
-                tau_file_prefix=prefix,
+                prefix=prefix,
                 tau_file_suffix="_run1",
             )
 
@@ -214,8 +214,39 @@ using DelayDifferentialAnalysis
             ]
             @test all(call -> dirname(call.tau_file) == prefix, calls)
             @test all(call -> dirname(call.out_fn) == prefix, calls)
+            @test sort(basename.(call.out_fn for call in calls)) == [
+                "structure_selection_01_d1",
+                "structure_selection_04_d1",
+            ]
             @test isfile(joinpath(prefix, "TAU_ALL__1_0_run1"))
             @test isfile(joinpath(prefix, "TAU_ALL__2_1_run1"))
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "structure-selection output names use padded model term indices" begin
+        calls = []
+
+        run_once = (; out_fn, kwargs...) -> begin
+            push!(calls, out_fn)
+            return fake_result(1.0)
+        end
+
+        out_dir = mktempdir()
+        try
+            DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                candidate_models=[[1, 2, 10]],
+                delays=[[7, 10]],
+                derivative_points=4,
+                order=3,
+                out_dir=out_dir,
+            )
+
+            @test basename(only(calls)) == "structure_selection_01_02_10_d1"
         finally
             rm(out_dir; recursive=true, force=true)
         end
@@ -248,7 +279,7 @@ using DelayDifferentialAnalysis
                 out_dir=out_dir,
             )
 
-            reported_call = only(filter(call -> basename(call.out_fn) == "structure_selection_m7_d1", calls))
+            reported_call = only(filter(call -> basename(call.out_fn) == "structure_selection_01_03_06_d1", calls))
             @test reported_call.nr_tau == 1
             @test reported_call.model == [1, 2, 3]
             @test basename(reported_call.tau_file) == "TAU_ALL__1_0"
@@ -307,6 +338,28 @@ using DelayDifferentialAnalysis
         @test !haskey(calls[1].kwargs, :model_scope)
     end
 
+    @testset "omitted channels runs structure selection across all binary channels" begin
+        calls = []
+
+        run_once = (; channels, model, delays, kwargs...) -> begin
+            push!(calls, (channels=channels, model=Int[model...], delays=Int[delays...]))
+            return fake_result(1.0)
+        end
+
+        result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+            run_once;
+            file_path="data.ascii",
+            candidate_models=[[1, 2, 6]],
+            delays=[[7, 10]],
+            derivative_points=4,
+            order=3,
+        )
+
+        @test result.best_model == [1, 2, 6]
+        @test length(calls) == 1
+        @test calls[1].channels === nothing
+    end
+
     @testset "per-channel model scope selects one model per channel" begin
         calls = []
         scores = Dict(
@@ -357,12 +410,25 @@ using DelayDifferentialAnalysis
             @test length(calls) == 4
             @test calls[1].channels == [1]
             @test calls[3].channels == [2]
-            @test basename(calls[1].out_fn) == "structure_selection_ch1_m1_d1"
-            @test basename(calls[3].out_fn) == "structure_selection_ch2_m1_d1"
+            @test basename(calls[1].out_fn) == "structure_selection_ch1_01_02_06_d1"
+            @test basename(calls[3].out_fn) == "structure_selection_ch2_01_02_06_d1"
             @test !haskey(calls[1].kwargs, :model_scope)
         finally
             rm(out_dir; recursive=true, force=true)
         end
+    end
+
+    @testset "tau_file_prefix is not a structure-selection keyword" begin
+        @test_throws ErrorException DelayDifferentialAnalysis.StructureSelection._structure_selection(
+            (; kwargs...) -> fake_result(1.0);
+            file_path="data.ascii",
+            channels=[1],
+            candidate_models=[[1, 2, 6]],
+            delays=[[7, 10]],
+            derivative_points=4,
+            order=3,
+            tau_file_prefix="/tmp/old",
+        )
     end
 
     @testset "rejects invalid structure-selection model scope" begin
@@ -404,7 +470,7 @@ using DelayDifferentialAnalysis
             @test result.best_model == matrix_model
             @test seen[1].model == matrix_model
             @test startswith(seen[1].out_fn, out_dir)
-            @test basename(seen[1].out_fn) == "structure_selection_m1_d1"
+            @test basename(seen[1].out_fn) == "structure_selection_01_02_06_d1"
             @test result.trials[1].out_fn == seen[1].out_fn
         finally
             rm(out_dir; recursive=true, force=true)
