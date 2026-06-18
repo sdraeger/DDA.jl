@@ -538,13 +538,20 @@ function _structure_selection_resolved(
             nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
             tau_rows = _tau_rows(delay_spec.values, nr, sym)
             tau_path = _write_tau_file(tau_file_prefix, nr, sym, tau_file_suffix, tau_rows)
+            executable_model = _model_for_tau_file(
+                model,
+                P_DDA;
+                nr_delays=nr_delays,
+                order=model_order,
+                nr_tau=nr,
+            )
             out_fn = _trial_out_fn(output_root, model_idx, 1, _trial_prefix)
             result = run_once(;
                 file_path=file_path,
                 channels=channels,
                 flavors=["ST"],
                 binary_path=binary_path,
-                model=model,
+                model=executable_model,
                 delays=first(tau_rows),
                 derivative_points=Int(derivative_points),
                 order=model_order,
@@ -713,6 +720,36 @@ function _model_symmetry(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Int
     end
     sym = sortslices(Matrix{Int}(terms), dims=1) == sortslices(mirrored_terms, dims=1) ? 1 : 0
     return nr, sym
+end
+
+function _model_for_tau_file(
+    model,
+    P_DDA::AbstractMatrix{<:Integer};
+    nr_delays::Integer,
+    order::Integer,
+    nr_tau::Integer,
+)
+    nr_tau == nr_delays && return model
+
+    model_indices = _model_indices(model, P_DDA; nr_delays=nr_delays, order=order)
+    terms = P_DDA[model_indices, :]
+    active_delays = sort(unique(value for value in vec(terms) if value > 0))
+    length(active_delays) == nr_tau || error(
+        "Model uses $(length(active_delays)) active delay variables, but nr_tau=$nr_tau",
+    )
+
+    delay_map = Dict(delay => idx for (idx, delay) in enumerate(active_delays))
+    remapped_terms = Matrix{Int}(undef, size(terms)...)
+    for row_idx in 1:size(terms, 1)
+        for col_idx in 1:size(terms, 2)
+            value = Int(terms[row_idx, col_idx])
+            remapped_terms[row_idx, col_idx] = value == 0 ? 0 : delay_map[value]
+        end
+    end
+
+    executable_P_DDA = _p_dda(order; nr_delays=nr_tau)
+    row_to_index = Dict(Tuple(executable_P_DDA[idx, :]) => idx for idx in 1:size(executable_P_DDA, 1))
+    return Int[row_to_index[Tuple(remapped_terms[row_idx, :])] for row_idx in 1:size(remapped_terms, 1)]
 end
 
 function _model_indices(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Integer, order::Integer)::Vector{Int}

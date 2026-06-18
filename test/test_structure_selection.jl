@@ -217,6 +217,43 @@ using DelayDifferentialAnalysis
         end
     end
 
+    @testset "one-delay tau-file models are re-encoded for nr_tau one" begin
+        calls = []
+
+        run_once = (; model, nr_tau, tau_file, out_fn, kwargs...) -> begin
+            push!(calls, (
+                model=Int[model...],
+                nr_tau=nr_tau,
+                tau_file=tau_file,
+                out_fn=out_fn,
+            ))
+            n_rows = length(readlines(tau_file))
+            return fake_errors(fill(1.0, n_rows))
+        end
+
+        out_dir = mktempdir()
+        try
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                N_MOD=3,
+                DDAorder=3,
+                delays=6:8,
+                derivative_points=5,
+                out_dir=out_dir,
+            )
+
+            reported_call = only(filter(call -> basename(call.out_fn) == "structure_selection_m7_d1", calls))
+            @test reported_call.nr_tau == 1
+            @test reported_call.model == [1, 2, 3]
+            @test basename(reported_call.tau_file) == "TAU_ALL__1_0"
+            @test result.trials[7].model == [1, 3, 6]
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
     @testset "generated tau-file artifacts can be cleaned up on error" begin
         parent_dir = mktempdir()
 
