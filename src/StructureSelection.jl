@@ -840,10 +840,14 @@ end
 function _score_error_rows(errors, metric::Symbol, n_rows::Integer)::Vector{Float64}
     if errors isa AbstractVector && length(errors) == n_rows
         return Float64[errors...]
+    elseif errors isa AbstractVector && length(errors) % n_rows == 0
+        return [_score_values(errors[row_idx:n_rows:end], metric) for row_idx in 1:n_rows]
     elseif ndims(errors) == 2 && size(errors, 1) == n_rows
         return [_score_values(vec(errors[row_idx, :]), metric) for row_idx in 1:n_rows]
     elseif ndims(errors) == 2 && size(errors, 2) == n_rows
         return [_score_values(vec(errors[:, col_idx]), metric) for col_idx in 1:n_rows]
+    elseif ndims(errors) == 2 && size(errors, 1) % n_rows == 0
+        return [_score_values(vec(errors[row_idx:n_rows:end, :]), metric) for row_idx in 1:n_rows]
     end
     error("ST errors shape $(size(errors)) does not match generated tau-row count $n_rows")
 end

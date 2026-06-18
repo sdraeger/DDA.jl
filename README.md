@@ -70,7 +70,6 @@ result = run_DDA(
     WL=2048,
     WS=1024,
     time_range=(0, 50000),
-    out_fn=nothing,
 )
 
 println(size(result.T))  # first two raw integer binary columns
@@ -85,6 +84,21 @@ wrapper does not pass `-CH_list` and leaves channel selection to the binary.
 Pass `load_results=false` to execute the binary without parsing output files
 into Julia; the call returns `nothing`. If output files should be kept in this
 mode, pass an explicit `out_fn`.
+
+```julia
+run_DDA(
+    file_path="recording.edf",
+    channels=[1, 2, 3, 4],
+    flavors=["ST"],
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    model=[1, 2, 10],
+    derivative_points=3,
+    order=4,
+    delays=[7, 10],
+    out_fn="dda-output/run1",
+    load_results=false,
+)
+```
 
 ## Structure Selection
 

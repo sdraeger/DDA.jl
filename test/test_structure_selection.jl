@@ -181,6 +181,29 @@ using DelayDifferentialAnalysis
         end
     end
 
+    @testset "generated tau-file selection aggregates channel-stacked error rows" begin
+        run_once = (; kwargs...) -> fake_errors(reshape([0.5, 0.1, 0.7, 0.4, 0.3, 0.9], 6, 1))
+
+        out_dir = mktempdir()
+        try
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1, 2],
+                candidate_models=[[4]],
+                delays=[10, 20, 30],
+                derivative_points=4,
+                order=2,
+                out_dir=out_dir,
+            )
+
+            @test result.best_delays == [10, 30]
+            @test result.best_score == 0.2
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
     @testset "generated tau files honor user prefix directory" begin
         calls = []
 
