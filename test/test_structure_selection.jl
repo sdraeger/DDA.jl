@@ -1,3 +1,4 @@
+using Random
 using Test
 using DelayDifferentialAnalysis
 
@@ -139,19 +140,20 @@ using DelayDifferentialAnalysis
             @test result.best_delays == [10, 30]
             @test result.best_score == 0.1
             @test result.artifacts_dir !== nothing
-            @test dirname(calls[1].tau_file) == result.artifacts_dir
+            calls_by_model = Dict(Tuple(call.model) => call for call in calls)
+            @test dirname(calls_by_model[(1,)].tau_file) == result.artifacts_dir
             @test basename(result.artifacts_dir) |> startswith("structure_selection_")
             @test sort(basename.(calls[i].tau_file for i in eachindex(calls))) == [
                 "TAU_ALL__1_0_run1",
                 "TAU_ALL__2_1_run1",
             ]
-            @test read(calls[1].tau_file, String) == "10\n30\n50\n"
-            @test read(calls[2].tau_file, String) == "10 30\n10 50\n30 50\n"
-            @test calls[1].delays == [10]
-            @test calls[1].nr_tau == 1
-            @test calls[2].delays == [10, 30]
-            @test calls[2].nr_tau == 2
-            @test calls[1].kwargs[:flavors] == ["ST"]
+            @test read(calls_by_model[(1,)].tau_file, String) == "10\n30\n50\n"
+            @test read(calls_by_model[(4,)].tau_file, String) == "10 30\n10 50\n30 50\n"
+            @test calls_by_model[(1,)].delays == [10]
+            @test calls_by_model[(1,)].nr_tau == 1
+            @test calls_by_model[(4,)].delays == [10, 30]
+            @test calls_by_model[(4,)].nr_tau == 2
+            @test calls_by_model[(1,)].kwargs[:flavors] == ["ST"]
             @test result.trials[1].tau_file == calls[1].tau_file
         finally
             rm(out_dir; recursive=true, force=true)
@@ -238,11 +240,82 @@ using DelayDifferentialAnalysis
             @test all(call -> dirname(call.tau_file) == prefix, calls)
             @test all(call -> dirname(call.out_fn) == prefix, calls)
             @test sort(basename.(call.out_fn for call in calls)) == [
-                "structure_selection_01_d1",
-                "structure_selection_04_d1",
+                "structure_selection_01",
+                "structure_selection_04",
             ]
             @test isfile(joinpath(prefix, "TAU_ALL__1_0_run1"))
             @test isfile(joinpath(prefix, "TAU_ALL__2_1_run1"))
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "existing pool output is reused without rerunning" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            write(
+                joinpath(prefix, "structure_selection_04_ST"),
+                "0 0 1 2 3 0.5\n0 0 1 2 3 0.2\n0 0 1 2 3 0.9\n",
+            )
+            calls = Ref(0)
+            run_once = (; kwargs...) -> begin
+                calls[] += 1
+                error("structure selection should reuse the existing output")
+            end
+
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                candidate_models=[[4]],
+                delays=10:12,
+                derivative_points=4,
+                order=2,
+                prefix=prefix,
+            )
+
+            @test calls[] == 0
+            @test result.best_delays == [10, 12]
+            @test result.best_score == 0.2
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "pool candidate order can be randomized" begin
+        out_dir = mktempdir()
+        try
+            calls = String[]
+            run_once = (; out_fn, tau_file, kwargs...) -> begin
+                push!(calls, basename(out_fn))
+                return fake_errors(fill(1.0, length(readlines(tau_file))))
+            end
+            models = [[1], [2], [3], [4], [5]]
+            expected = [
+                "structure_selection_01",
+                "structure_selection_02",
+                "structure_selection_03",
+                "structure_selection_04",
+                "structure_selection_05",
+            ]
+
+            DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                candidate_models=models,
+                delays=10:12,
+                derivative_points=4,
+                order=2,
+                out_dir=out_dir,
+                randomize=true,
+                rng=Random.MersenneTwister(7),
+            )
+
+            @test sort(calls) == expected
+            @test calls != expected
         finally
             rm(out_dir; recursive=true, force=true)
         end
@@ -302,11 +375,11 @@ using DelayDifferentialAnalysis
                 out_dir=out_dir,
             )
 
-            reported_call = only(filter(call -> basename(call.out_fn) == "structure_selection_01_03_06_d1", calls))
+            reported_call = only(filter(call -> basename(call.out_fn) == "structure_selection_01_03_06", calls))
             @test reported_call.nr_tau == 1
             @test reported_call.model == [1, 2, 3]
             @test basename(reported_call.tau_file) == "TAU_ALL__1_0"
-            @test result.trials[7].model == [1, 3, 6]
+            @test any(trial -> trial.model == [1, 3, 6], result.trials)
         finally
             rm(out_dir; recursive=true, force=true)
         end

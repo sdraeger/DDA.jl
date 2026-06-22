@@ -164,12 +164,13 @@ generated tau files and structure-selection outputs. For example,
 `prefix="/scratch/my-run"` creates that folder and writes files such
 as `/scratch/my-run/TAU_ALL__1_0`,
 `/scratch/my-run/TAU_ALL__2_1`, and
-`/scratch/my-run/structure_selection_01_02_10_d1_ST`, avoiding systems where
+`/scratch/my-run/structure_selection_01_02_10_ST`, avoiding systems where
 `/tmp` is not writable. Structure-selection output names encode active `MOD`
-column indices as two-digit numbers separated by underscores. Artifacts are
-retained by default for external inspection; pass `cleanup_on_error=true` to
-delete only automatically generated artifact folders if the selection call
-errors.
+column indices as two-digit numbers separated by underscores. Pool-mode
+candidates are evaluated in randomized order by default, and an existing
+`*_ST` output is reused instead of rerun. Artifacts are retained by default for
+external inspection; pass `cleanup_on_error=true` to delete only automatically
+generated artifact folders if the selection call errors.
 
 The structured variant is also available:
 

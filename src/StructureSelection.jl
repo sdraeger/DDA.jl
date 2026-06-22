@@ -2,6 +2,7 @@
 module StructureSelection
 
 using Printf
+using Random
 using Statistics
 using ..ModelEncoding: generate_monomials
 using ..Runner: run_DDA
@@ -53,6 +54,7 @@ end
         candidate_models=nothing, MOD=nothing, N_MOD=nothing,
         delays=nothing, candidate_delays=nothing, derivative_points,
         order=nothing, DDAorder=nothing, model_scope=:joint, prefix=nothing,
+        randomize=true,
         kwargs...)
 
 Evaluate each candidate model/delay combination with `run_DDA` and return the
@@ -63,6 +65,8 @@ to generate Claudia-style `TAU_ALL__...` files, or as nested vectors for
 explicit delay candidates.
 Pass `prefix` to choose the output folder used for generated tau files and
 structure-selection outputs, for example `/scratch/run42`.
+Pool-mode candidates are evaluated in randomized order by default so concurrent
+structure-selection runs are less likely to start with the same model.
 With `model_scope=:joint`, one model is selected across all channels. With
 `model_scope=:per_channel`, one model is selected independently per channel.
 """
@@ -374,6 +378,8 @@ function _structure_selection(
     metric::Symbol=:mean_error,
     out_dir=nothing,
     model_scope=:joint,
+    randomize::Bool=true,
+    rng=Random.GLOBAL_RNG,
     cleanup_on_error::Bool=false,
     _trial_prefix::AbstractString="structure_selection",
     _artifacts_dir::Union{AbstractString, Nothing}=nothing,
@@ -416,6 +422,8 @@ function _structure_selection(
             metric=metric,
             out_dir=out_dir,
             model_scope=model_scope,
+            randomize=randomize,
+            rng=rng,
             cleanup_on_error=cleanup_on_error,
             _trial_prefix=_trial_prefix,
             _artifacts_dir=artifacts_dir,
@@ -450,6 +458,8 @@ function _structure_selection_resolved(
     metric::Symbol,
     out_dir,
     model_scope,
+    randomize::Bool,
+    rng,
     cleanup_on_error::Bool,
     _trial_prefix::AbstractString,
     _artifacts_dir::Union{AbstractString, Nothing},
@@ -480,6 +490,8 @@ function _structure_selection_resolved(
                 metric=metric,
                 out_dir=out_dir,
                 model_scope=:joint,
+                randomize=randomize,
+                rng=rng,
                 cleanup_on_error=cleanup_on_error,
                 _trial_prefix="structure_selection_ch$(channel_idx)",
                 _artifacts_dir=_artifacts_dir,
@@ -536,7 +548,7 @@ function _structure_selection_resolved(
             end
         end
     else
-        for model in models
+        for model in _candidate_order(models, randomize, rng)
             nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
             tau_rows = _tau_rows(delay_spec.values, nr, sym)
             tau_path = _write_tau_file(tau_prefix, nr, sym, tau_file_suffix, tau_rows)
@@ -548,24 +560,26 @@ function _structure_selection_resolved(
                 nr_tau=nr,
             )
             model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
-            out_fn = _trial_out_fn(output_root, model_id, 1, _trial_prefix)
-            result = run_once(;
-                file_path=file_path,
-                channels=channels,
-                flavors=["ST"],
-                binary_path=binary_path,
-                model=executable_model,
-                delays=first(tau_rows),
-                derivative_points=Int(derivative_points),
-                order=model_order,
-                nr_tau=nr,
-                tau_file=tau_path,
-                WL=WL,
-                WS=WS,
-                input_format=input_format,
-                out_fn=out_fn,
-                kwargs...,
-            )
+            out_fn = _trial_out_fn(output_root, model_id, nothing, _trial_prefix)
+            result = _run_or_reuse_pool_output(out_fn) do
+                run_once(;
+                    file_path=file_path,
+                    channels=channels,
+                    flavors=["ST"],
+                    binary_path=binary_path,
+                    model=executable_model,
+                    delays=first(tau_rows),
+                    derivative_points=Int(derivative_points),
+                    order=model_order,
+                    nr_tau=nr,
+                    tau_file=tau_path,
+                    WL=WL,
+                    WS=WS,
+                    input_format=input_format,
+                    out_fn=out_fn,
+                    kwargs...,
+                )
+            end
             best_delays, score = _best_tau_row_score(result, metric, tau_rows)
             trial = StructureSelectionTrial(model, best_delays, score, result, out_fn, tau_path)
             push!(trials, trial)
@@ -631,6 +645,79 @@ function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir, 
     parent = out_dir === nothing ? tempdir() : expanduser(String(out_dir))
     mkpath(parent)
     return mktempdir(parent; prefix="structure_selection_")
+end
+
+function _candidate_order(models::Vector{Any}, randomize::Bool, rng)::Vector{Any}
+    randomize || return models
+    length(models) <= 1 && return models
+    return Random.shuffle(rng, models)
+end
+
+function _run_or_reuse_pool_output(run_candidate::Function, output_base::Union{String, Nothing})
+    output_base === nothing && return run_candidate()
+
+    existing = _existing_pool_result(output_base)
+    existing !== nothing && return existing
+
+    lock_path = "$(output_base).lock"
+    if _try_create_lock(lock_path)
+        try
+            existing = _existing_pool_result(output_base)
+            existing !== nothing && return existing
+            return run_candidate()
+        finally
+            rm(lock_path; recursive=true, force=true)
+        end
+    end
+
+    return _wait_for_pool_result(output_base, lock_path)
+end
+
+function _try_create_lock(lock_path::AbstractString)::Bool
+    try
+        mkdir(lock_path)
+        return true
+    catch
+        ispath(lock_path) && return false
+        rethrow()
+    end
+end
+
+function _wait_for_pool_result(output_base::String, lock_path::String)
+    while ispath(lock_path)
+        existing = _existing_pool_result(output_base)
+        existing !== nothing && return existing
+        sleep(0.5)
+    end
+
+    existing = _existing_pool_result(output_base)
+    existing !== nothing && return existing
+    error("Structure-selection lock disappeared before output was written: $(output_base)_ST")
+end
+
+function _existing_pool_result(output_base::String)
+    st_path = "$(output_base)_ST"
+    isfile(st_path) || return nothing
+    errors = _read_st_error_rows(st_path)
+    errors === nothing && return nothing
+    return (variant_results=[(variant_id="ST", errors=errors)],)
+end
+
+function _read_st_error_rows(st_path::String)::Union{Matrix{Float64}, Nothing}
+    values = Float64[]
+    try
+        for line in eachline(st_path)
+            stripped = strip(line)
+            isempty(stripped) && continue
+            parts = split(stripped)
+            isempty(parts) && continue
+            push!(values, parse(Float64, parts[end]))
+        end
+    catch
+        return nothing
+    end
+    isempty(values) && return nothing
+    return reshape(values, :, 1)
 end
 
 function _normalize_model_scope(model_scope)::Symbol
@@ -894,11 +981,12 @@ end
 function _trial_out_fn(
     output_root::Union{String, Nothing},
     model_id::AbstractString,
-    delay_idx::Integer,
+    delay_idx::Union{Integer, Nothing},
     prefix::AbstractString="structure_selection",
 )::Union{String, Nothing}
     output_root === nothing && return nothing
-    return joinpath(output_root, "$(prefix)_$(model_id)_d$(delay_idx)")
+    delay_suffix = delay_idx === nothing ? "" : "_d$(delay_idx)"
+    return joinpath(output_root, "$(prefix)_$(model_id)$(delay_suffix)")
 end
 
 end # module StructureSelection
