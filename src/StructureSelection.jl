@@ -561,7 +561,7 @@ function _structure_selection_resolved(
             )
             model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
             out_fn = _trial_out_fn(output_root, model_id, nothing, _trial_prefix)
-            result = _run_or_reuse_pool_output(out_fn) do
+            result = _run_or_reuse_pool_output(out_fn, length(tau_rows)) do
                 run_once(;
                     file_path=file_path,
                     channels=channels,
@@ -653,16 +653,20 @@ function _candidate_order(models::Vector{Any}, randomize::Bool, rng)::Vector{Any
     return Random.shuffle(rng, models)
 end
 
-function _run_or_reuse_pool_output(run_candidate::Function, output_base::Union{String, Nothing})
+function _run_or_reuse_pool_output(
+    run_candidate::Function,
+    output_base::Union{String, Nothing},
+    expected_tau_rows::Integer,
+)
     output_base === nothing && return run_candidate()
 
-    existing = _existing_pool_result(output_base)
+    existing = _existing_pool_result(output_base, expected_tau_rows)
     existing !== nothing && return existing
 
     lock_path = "$(output_base).lock"
     if _try_create_lock(lock_path)
         try
-            existing = _existing_pool_result(output_base)
+            existing = _existing_pool_result(output_base, expected_tau_rows)
             existing !== nothing && return existing
             return run_candidate()
         finally
@@ -670,7 +674,7 @@ function _run_or_reuse_pool_output(run_candidate::Function, output_base::Union{S
         end
     end
 
-    return _wait_for_pool_result(output_base, lock_path)
+    return _wait_for_pool_result(output_base, lock_path, expected_tau_rows)
 end
 
 function _try_create_lock(lock_path::AbstractString)::Bool
@@ -683,24 +687,31 @@ function _try_create_lock(lock_path::AbstractString)::Bool
     end
 end
 
-function _wait_for_pool_result(output_base::String, lock_path::String)
+function _wait_for_pool_result(output_base::String, lock_path::String, expected_tau_rows::Integer)
     while ispath(lock_path)
-        existing = _existing_pool_result(output_base)
+        existing = _existing_pool_result(output_base, expected_tau_rows)
         existing !== nothing && return existing
         sleep(0.5)
     end
 
-    existing = _existing_pool_result(output_base)
+    existing = _existing_pool_result(output_base, expected_tau_rows)
     existing !== nothing && return existing
     error("Structure-selection lock disappeared before output was written: $(output_base)_ST")
 end
 
-function _existing_pool_result(output_base::String)
+function _existing_pool_result(output_base::String, expected_tau_rows::Integer)
     st_path = "$(output_base)_ST"
     isfile(st_path) || return nothing
     errors = _read_st_error_rows(st_path)
     errors === nothing && return nothing
+    _has_complete_tau_rows(errors, expected_tau_rows) || return nothing
     return (variant_results=[(variant_id="ST", errors=errors)],)
+end
+
+function _has_complete_tau_rows(errors::AbstractMatrix, expected_tau_rows::Integer)::Bool
+    expected_tau_rows > 0 || return false
+    row_count = size(errors, 1)
+    return row_count >= expected_tau_rows && row_count % expected_tau_rows == 0
 end
 
 function _read_st_error_rows(st_path::String)::Union{Matrix{Float64}, Nothing}

@@ -284,6 +284,37 @@ using DelayDifferentialAnalysis
         end
     end
 
+    @testset "partial existing pool output is not reused" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            write(joinpath(prefix, "structure_selection_04_ST"), "0 0 1 2 3 0.5\n")
+            calls = Ref(0)
+            run_once = (; kwargs...) -> begin
+                calls[] += 1
+                return fake_errors([0.5, 0.2, 0.9])
+            end
+
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=1:11,
+                candidate_models=[[4]],
+                delays=10:12,
+                derivative_points=4,
+                order=2,
+                prefix=prefix,
+            )
+
+            @test calls[] == 1
+            @test result.best_delays == [10, 12]
+            @test result.best_score == 0.2
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
     @testset "pool candidate order can be randomized" begin
         out_dir = mktempdir()
         try
