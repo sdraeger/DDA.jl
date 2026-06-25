@@ -316,7 +316,59 @@ using DelayDifferentialAnalysis
         end
     end
 
-    @testset "partial existing pool output is not overwritten" begin
+    @testset "identical tau file writes preserve existing file" begin
+        out_dir = mktempdir()
+        try
+            tau_path = joinpath(out_dir, "TAU_ALL__2_0")
+            tau_rows = [[10, 11], [10, 12], [11, 10]]
+            DelayDifferentialAnalysis.StructureSelection._write_tau_file(tau_path, tau_rows)
+            before = stat(tau_path).mtime
+            sleep(1.1)
+            DelayDifferentialAnalysis.StructureSelection._write_tau_file(tau_path, tau_rows)
+
+            @test stat(tau_path).mtime == before
+            @test read(tau_path, String) == "10 11\n10 12\n11 10\n"
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "partial existing pool output is skipped without overwriting" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            st_path = joinpath(prefix, "structure_selection_04_ST")
+            write(st_path, "0 0 1 2 3 0.5\n")
+            calls = Ref(0)
+            run_once = (; kwargs...) -> begin
+                calls[] += 1
+                return fake_errors([0.5, 0.2, 0.9])
+            end
+
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=1:11,
+                candidate_models=[[4], [5]],
+                delays=10:12,
+                derivative_points=4,
+                order=2,
+                prefix=prefix,
+                randomize=false,
+            )
+
+            @test calls[] == 1
+            @test result.best_model == [5]
+            @test result.best_delays == [11]
+            @test result.best_score == 0.2
+            @test read(st_path, String) == "0 0 1 2 3 0.5\n"
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "all conflicted pool outputs give one clear error" begin
         out_dir = mktempdir()
         try
             prefix = joinpath(out_dir, "RUN1")
@@ -346,7 +398,7 @@ using DelayDifferentialAnalysis
             end
 
             @test err isa ErrorException
-            @test occursin("not reusable", sprint(showerror, err))
+            @test occursin("No usable structure-selection candidates", sprint(showerror, err))
             @test calls[] == 0
             @test read(st_path, String) == "0 0 1 2 3 0.5\n"
         finally
@@ -354,7 +406,7 @@ using DelayDifferentialAnalysis
         end
     end
 
-    @testset "existing info file without ST is not overwritten" begin
+    @testset "existing info file without ST is skipped without overwriting" begin
         out_dir = mktempdir()
         try
             prefix = joinpath(out_dir, "RUN1")
@@ -367,26 +419,75 @@ using DelayDifferentialAnalysis
                 return fake_errors([0.5, 0.2, 0.9])
             end
 
-            err = try
-                DelayDifferentialAnalysis.StructureSelection._structure_selection(
-                    run_once;
-                    file_path="data.ascii",
-                    channels=[1],
-                    candidate_models=[[4]],
-                    delays=10:12,
-                    derivative_points=4,
-                    order=2,
-                    prefix=prefix,
-                )
-                nothing
-            catch err
-                err
-            end
+            result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                run_once;
+                file_path="data.ascii",
+                channels=[1],
+                candidate_models=[[4], [5]],
+                delays=10:12,
+                derivative_points=4,
+                order=2,
+                prefix=prefix,
+                randomize=false,
+            )
 
-            @test err isa ErrorException
-            @test occursin("not reusable", sprint(showerror, err))
-            @test calls[] == 0
+            @test calls[] == 1
+            @test result.best_model == [5]
+            @test result.best_delays == [11]
+            @test result.best_score == 0.2
             @test read(info_path, String) == "sentinel\n"
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "pool output replaces stale same-host lock" begin
+        out_dir = mktempdir()
+        try
+            output_base = joinpath(out_dir, "structure_selection_04")
+            lock_path = "$(output_base).lock"
+            mkdir(lock_path)
+            write(
+                joinpath(lock_path, "owner"),
+                "pid=999999999\nhost=$(gethostname())\n",
+            )
+            calls = Ref(0)
+
+            task = @async DelayDifferentialAnalysis.StructureSelection._run_or_reuse_pool_output(
+                output_base,
+                3,
+            ) do
+                calls[] += 1
+                return fake_errors([0.5, 0.2, 0.9])
+            end
+            sleep(0.2)
+
+            @test istaskdone(task)
+            result = fetch(task)
+            @test calls[] == 1
+            @test DelayDifferentialAnalysis.StructureSelection._score_result(result, :minimum_error) == 0.2
+            @test !ispath(lock_path)
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "ownerless lock stale threshold protects new locks" begin
+        out_dir = mktempdir()
+        try
+            lock_path = joinpath(out_dir, "structure_selection_04.lock")
+            mkdir(lock_path)
+            mtime = stat(lock_path).mtime
+            grace = DelayDifferentialAnalysis.StructureSelection._POOL_OWNERLESS_LOCK_GRACE_SECONDS
+
+            @test !DelayDifferentialAnalysis.StructureSelection._ownerless_lock_is_stale(
+                lock_path,
+                mtime + grace,
+            )
+            @test DelayDifferentialAnalysis.StructureSelection._ownerless_lock_is_stale(
+                lock_path,
+                mtime + grace + 1,
+            )
         finally
             rm(out_dir; recursive=true, force=true)
         end
