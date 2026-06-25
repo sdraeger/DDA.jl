@@ -284,22 +284,23 @@ using DelayDifferentialAnalysis
         end
     end
 
-    @testset "partial existing pool output is not reused" begin
+    @testset "existing pool output does not rewrite tau file" begin
         out_dir = mktempdir()
         try
             prefix = joinpath(out_dir, "RUN1")
             mkpath(prefix)
-            write(joinpath(prefix, "structure_selection_04_ST"), "0 0 1 2 3 0.5\n")
-            calls = Ref(0)
-            run_once = (; kwargs...) -> begin
-                calls[] += 1
-                return fake_errors([0.5, 0.2, 0.9])
-            end
+            tau_path = joinpath(prefix, "TAU_ALL__2_1")
+            write(tau_path, "sentinel\n")
+            write(
+                joinpath(prefix, "structure_selection_04_ST"),
+                "0 0 1 2 3 0.5\n0 0 1 2 3 0.2\n0 0 1 2 3 0.9\n",
+            )
+            run_once = (; kwargs...) -> error("structure selection should reuse the existing output")
 
             result = DelayDifferentialAnalysis.StructureSelection._structure_selection(
                 run_once;
                 file_path="data.ascii",
-                channels=1:11,
+                channels=[1],
                 candidate_models=[[4]],
                 delays=10:12,
                 derivative_points=4,
@@ -307,9 +308,113 @@ using DelayDifferentialAnalysis
                 prefix=prefix,
             )
 
-            @test calls[] == 1
+            @test read(tau_path, String) == "sentinel\n"
             @test result.best_delays == [10, 12]
             @test result.best_score == 0.2
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "partial existing pool output is not overwritten" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            st_path = joinpath(prefix, "structure_selection_04_ST")
+            write(st_path, "0 0 1 2 3 0.5\n")
+            calls = Ref(0)
+            run_once = (; kwargs...) -> begin
+                calls[] += 1
+                return fake_errors([0.5, 0.2, 0.9])
+            end
+
+            err = try
+                DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                    run_once;
+                    file_path="data.ascii",
+                    channels=1:11,
+                    candidate_models=[[4]],
+                    delays=10:12,
+                    derivative_points=4,
+                    order=2,
+                    prefix=prefix,
+                )
+                nothing
+            catch err
+                err
+            end
+
+            @test err isa ErrorException
+            @test occursin("not reusable", sprint(showerror, err))
+            @test calls[] == 0
+            @test read(st_path, String) == "0 0 1 2 3 0.5\n"
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "existing info file without ST is not overwritten" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            info_path = joinpath(prefix, "structure_selection_04.info")
+            write(info_path, "sentinel\n")
+            calls = Ref(0)
+            run_once = (; kwargs...) -> begin
+                calls[] += 1
+                return fake_errors([0.5, 0.2, 0.9])
+            end
+
+            err = try
+                DelayDifferentialAnalysis.StructureSelection._structure_selection(
+                    run_once;
+                    file_path="data.ascii",
+                    channels=[1],
+                    candidate_models=[[4]],
+                    delays=10:12,
+                    derivative_points=4,
+                    order=2,
+                    prefix=prefix,
+                )
+                nothing
+            catch err
+                err
+            end
+
+            @test err isa ErrorException
+            @test occursin("not reusable", sprint(showerror, err))
+            @test calls[] == 0
+            @test read(info_path, String) == "sentinel\n"
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "pool waiter reruns when lock disappears without output" begin
+        out_dir = mktempdir()
+        try
+            output_base = joinpath(out_dir, "structure_selection_04")
+            lock_path = "$(output_base).lock"
+            mkdir(lock_path)
+            calls = Ref(0)
+            remover = @async begin
+                sleep(0.1)
+                rm(lock_path; recursive=true, force=true)
+            end
+
+            result = DelayDifferentialAnalysis.StructureSelection._run_or_reuse_pool_output(
+                output_base,
+                3,
+            ) do
+                calls[] += 1
+                return fake_errors([0.5, 0.2, 0.9])
+            end
+            wait(remover)
+
+            @test calls[] == 1
+            @test DelayDifferentialAnalysis.StructureSelection._score_result(result, :minimum_error) == 0.2
         finally
             rm(out_dir; recursive=true, force=true)
         end

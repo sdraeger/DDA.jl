@@ -551,7 +551,7 @@ function _structure_selection_resolved(
         for model in _candidate_order(models, randomize, rng)
             nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
             tau_rows = _tau_rows(delay_spec.values, nr, sym)
-            tau_path = _write_tau_file(tau_prefix, nr, sym, tau_file_suffix, tau_rows)
+            tau_path = _tau_file_path(tau_prefix, nr, sym, tau_file_suffix)
             executable_model = _model_for_tau_file(
                 model,
                 P_DDA;
@@ -562,6 +562,7 @@ function _structure_selection_resolved(
             model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
             out_fn = _trial_out_fn(output_root, model_id, nothing, _trial_prefix)
             result = _run_or_reuse_pool_output(out_fn, length(tau_rows)) do
+                _write_tau_file(tau_path, tau_rows)
                 run_once(;
                     file_path=file_path,
                     channels=channels,
@@ -639,7 +640,9 @@ function _resolve_structure_artifacts_dir(mode::Symbol, out_dir, artifacts_dir, 
     end
     artifacts_dir !== nothing && return String(artifacts_dir)
     if prefix !== nothing
-        return expanduser(String(prefix))
+        root = expanduser(String(prefix))
+        mkpath(root)
+        return root
     end
 
     parent = out_dir === nothing ? tempdir() : expanduser(String(out_dir))
@@ -660,21 +663,30 @@ function _run_or_reuse_pool_output(
 )
     output_base === nothing && return run_candidate()
 
-    existing = _existing_pool_result(output_base, expected_tau_rows)
-    existing !== nothing && return existing
-
     lock_path = "$(output_base).lock"
-    if _try_create_lock(lock_path)
-        try
-            existing = _existing_pool_result(output_base, expected_tau_rows)
-            existing !== nothing && return existing
-            return run_candidate()
-        finally
-            rm(lock_path; recursive=true, force=true)
-        end
-    end
+    while true
+        existing = _existing_pool_result(output_base, expected_tau_rows)
+        existing !== nothing && return existing
 
-    return _wait_for_pool_result(output_base, lock_path, expected_tau_rows)
+        if !ispath(lock_path) && _pool_artifact_conflict(output_base, expected_tau_rows)
+            _throw_pool_artifact_conflict(output_base)
+        end
+
+        if _try_create_lock(lock_path)
+            try
+                existing = _existing_pool_result(output_base, expected_tau_rows)
+                existing !== nothing && return existing
+                _pool_artifact_conflict(output_base, expected_tau_rows) &&
+                    _throw_pool_artifact_conflict(output_base)
+                return run_candidate()
+            finally
+                rm(lock_path; recursive=true, force=true)
+            end
+        end
+
+        existing = _wait_for_pool_result(output_base, lock_path, expected_tau_rows)
+        existing !== nothing && return existing
+    end
 end
 
 function _try_create_lock(lock_path::AbstractString)::Bool
@@ -694,9 +706,25 @@ function _wait_for_pool_result(output_base::String, lock_path::String, expected_
         sleep(0.5)
     end
 
-    existing = _existing_pool_result(output_base, expected_tau_rows)
-    existing !== nothing && return existing
-    error("Structure-selection lock disappeared before output was written: $(output_base)_ST")
+    return _existing_pool_result(output_base, expected_tau_rows)
+end
+
+function _pool_artifact_conflict(output_base::String, expected_tau_rows::Integer)::Bool
+    _existing_pool_result(output_base, expected_tau_rows) !== nothing && return false
+    return isfile("$(output_base)_ST") || isfile("$(output_base).info")
+end
+
+function _throw_pool_artifact_conflict(output_base::String)
+    paths = String[]
+    st_path = "$(output_base)_ST"
+    info_path = "$(output_base).info"
+    isfile(st_path) && push!(paths, st_path)
+    isfile(info_path) && push!(paths, info_path)
+    error(
+        "Existing structure-selection output is not reusable and will not be overwritten: " *
+        join(paths, ", ") *
+        ". Remove these files or choose a different prefix.",
+    )
 end
 
 function _existing_pool_result(output_base::String, expected_tau_rows::Integer)
@@ -901,15 +929,20 @@ function _tau_rows(delay_pool::AbstractVector{<:Integer}, nr::Integer, sym::Inte
     return rows
 end
 
-function _write_tau_file(
+function _tau_file_path(
     tau_prefix::AbstractString,
     nr::Integer,
     sym::Integer,
     suffix::AbstractString,
+)::String
+    return "$(tau_prefix)$(nr)_$(sym)$(suffix)"
+end
+
+function _write_tau_file(
+    tau_path::AbstractString,
     tau_rows::AbstractVector{<:AbstractVector{<:Integer}},
 )::String
-    path = "$(tau_prefix)$(nr)_$(sym)$(suffix)"
-    artifacts_dir = dirname(path)
+    artifacts_dir = dirname(tau_path)
     mkpath(artifacts_dir)
 
     tmp_path, io = mktemp(artifacts_dir)
@@ -918,13 +951,13 @@ function _write_tau_file(
             println(io, join(row, " "))
         end
         close(io)
-        mv(tmp_path, path; force=true)
+        mv(tmp_path, tau_path; force=true)
     catch
         isopen(io) && close(io)
         rm(tmp_path; force=true)
         rethrow()
     end
-    return path
+    return String(tau_path)
 end
 
 function _best_tau_row_score(result, metric::Symbol, tau_rows::AbstractVector{<:AbstractVector{<:Integer}})
