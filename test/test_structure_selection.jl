@@ -25,6 +25,151 @@ using DelayDifferentialAnalysis
         )
     end
 
+    function write_structure_st(path, errors::AbstractMatrix{<:Real}, n_terms::Integer)
+        n_channels, n_tau = size(errors)
+        fields = zeros(Float64, Int(n_terms) + 1, n_channels, n_tau)
+        fields[end, :, :] .= Float64.(errors)
+        open(path, "w") do io
+            println(io, "0 1 ", join(vec(fields), " "))
+        end
+        return nothing
+    end
+
+    @testset "structure_selection_compute computes outputs without selecting" begin
+        calls = []
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            run_once = (; kwargs...) -> begin
+                push!(calls, kwargs)
+                return nothing
+            end
+
+            run = DelayDifferentialAnalysis.StructureSelection._structure_selection_compute(
+                run_once;
+                file_path="data.ascii",
+                binary_path="/tmp/run_DDA_AsciiEdf",
+                input_format=:ascii,
+                channels=nothing,
+                N_MOD=1,
+                DDAorder=2,
+                delays=10:20,
+                derivative_points=4,
+                prefix=prefix,
+                MOD_numbers=[1, 2],
+                randomize=false,
+            )
+
+            @test run.prefix == prefix
+            @test size(run.MOD, 1) == 3
+            @test run.model_numbers == [1, 2]
+            @test run.channels === nothing
+            @test length(calls) == 2
+            @test all(call -> call[:load_results] == false, calls)
+            @test all(call -> call[:channels] === nothing, calls)
+            @test sort(basename.(call[:out_fn] for call in calls)) == [
+                "structure_selection_01",
+                "structure_selection_03",
+            ]
+            @test isfile(joinpath(prefix, "TAU_ALL__1_0"))
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "structure_selection_select reads cached outputs and defaults to all models and channels" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            MOD = make_MOD(1, 2)
+            write(joinpath(prefix, "TAU_ALL__1_0"), "10\n20\n")
+            write_structure_st(
+                joinpath(prefix, "structure_selection_01_ST"),
+                [0.1 0.4; 0.9 0.8],
+                1,
+            )
+            write_structure_st(
+                joinpath(prefix, "structure_selection_03_ST"),
+                [0.3 0.5; 0.2 0.1],
+                1,
+            )
+
+            run = StructureSelectionRun(
+                prefix,
+                MOD,
+                2,
+                2,
+                [10, 20],
+                nothing,
+                [1, 2],
+                4,
+                "",
+                "structure_selection",
+            )
+
+            selected_channel = structure_selection_select(run; channels=[2])
+            @test selected_channel.best_model == [3]
+            @test selected_channel.best_delays == [20]
+            @test selected_channel.best_score == 0.1
+
+            selected_all = structure_selection_select(run)
+            @test selected_all.best_model == [3]
+            @test selected_all.best_delays == [10]
+            @test selected_all.best_score == 0.25
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "structure_selection_select maps requested channel names from compute run" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            MOD = make_MOD(1, 2)
+            write(joinpath(prefix, "TAU_ALL__1_0"), "10\n20\n")
+            write_structure_st(
+                joinpath(prefix, "structure_selection_01_ST"),
+                [0.1 0.4; 0.9 0.8],
+                1,
+            )
+            write_structure_st(
+                joinpath(prefix, "structure_selection_03_ST"),
+                [0.3 0.5; 0.2 0.1],
+                1,
+            )
+
+            run = StructureSelectionRun(
+                prefix,
+                MOD,
+                2,
+                2,
+                [10, 20],
+                [10, 20],
+                [1, 2],
+                4,
+                "",
+                "structure_selection",
+            )
+
+            selected = structure_selection_select(run; channel=[20])
+            @test selected.best_model == [3]
+            @test selected.best_delays == [20]
+            @test selected.best_score == 0.1
+
+            selected_all = structure_selection_select(run)
+            @test selected_all.best_model == [3]
+            @test selected_all.best_delays == [10]
+            @test selected_all.best_score == 0.25
+
+            per_channel = structure_selection_select(run; model_scope=:per_channel)
+            @test [result.channel for result in per_channel.results] == [10, 20]
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
     @testset "selects the lowest-error model and delay candidate" begin
         calls = []
         scores = Dict(
@@ -762,6 +907,22 @@ using DelayDifferentialAnalysis
             order=3,
             tau_file_prefix="/tmp/old",
         )
+        out_dir = mktempdir()
+        try
+            @test_throws ErrorException DelayDifferentialAnalysis.StructureSelection._structure_selection_compute(
+                (; kwargs...) -> nothing;
+                file_path="data.ascii",
+                channels=[1],
+                N_MOD=1,
+                DDAorder=2,
+                delays=7:10,
+                derivative_points=4,
+                prefix=out_dir,
+                tau_file_prefix="/tmp/old",
+            )
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
     end
 
     @testset "rejects invalid structure-selection model scope" begin

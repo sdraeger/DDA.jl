@@ -2,7 +2,11 @@
 
 [![CI](https://github.com/sdraeger/DelayDifferentialAnalysis.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/sdraeger/DelayDifferentialAnalysis.jl/actions/workflows/CI.yml)
 
-Julia bindings for the DDA binary.
+Julia bindings for the native DDA binary `run_DDA_AsciiEdf`.
+
+The package is intentionally small: it builds the binary command, runs it, and
+parses the native output files into Julia objects when requested. It does not
+reimplement the DDA algorithm.
 
 ## Installation
 
@@ -11,7 +15,7 @@ using Pkg
 Pkg.add("DelayDifferentialAnalysis")
 ```
 
-Or, for the development version:
+For the development version:
 
 ```julia
 using Pkg
@@ -20,40 +24,21 @@ Pkg.add(url="https://github.com/sdraeger/DelayDifferentialAnalysis.jl")
 
 ## Binary Setup
 
-The package wraps `run_DDA_AsciiEdf`.
-
-You can resolve the binary in two ways:
-
-- Pass `binary_path="/full/path/to/run_DDA_AsciiEdf"` to the API call
-- Rely on the existing environment/search-path fallback (`DDA_BINARY_PATH`, `~/.local/bin`, `~/bin`, `/usr/local/bin`, `/opt/dda/bin`)
-
-On Windows, rename the binary to include the `.exe` suffix and pass that path,
-for example `binary_path="C:\\path\\to\\run_DDA_AsciiEdf.exe"`.
-
-## Quick Start
+Pass the binary explicitly when possible:
 
 ```julia
-using DelayDifferentialAnalysis
-
-result = run_st(
-    file_path="data.edf",
-    channels=[1, 2, 3],
-    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    derivative_points=3,
-    WL=2048,
-    WS=1024,
-)
-
-println(n_channels(result))
-println(n_windows(result))
-println(size(result.coefficients))
-println(result.T[1:3])
-println(result.t[1:3])
+binary_path = "/opt/dda/bin/run_DDA_AsciiEdf"
 ```
 
-## Generic Binary API
+If `binary_path` is omitted, the package checks `DDA_BINARY_PATH` and common
+locations such as `~/.local/bin`, `~/bin`, `/usr/local/bin`, and `/opt/dda/bin`.
 
-Use `run_DDA` when you want to call the binary directly with arbitrary flavors without constructing a request object.
+On Windows, rename the binary with an `.exe` suffix and pass that path, for
+example `binary_path="C:\\path\\to\\run_DDA_AsciiEdf.exe"`.
+
+## Running DDA
+
+Use `run_DDA` for direct access to the binary. Arguments are keyword-only.
 
 ```julia
 using DelayDifferentialAnalysis
@@ -61,178 +46,183 @@ using DelayDifferentialAnalysis
 result = run_DDA(
     file_path="recording.edf",
     channels=[1, 2, 3, 4],
-    flavors=["ST", "SY"],
+    flavors=["ST", "CT"],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
     model=[1, 2, 10],
-    derivative_points=3,
-    order=4,
+    derivative_points=4,
+    order=3,
     delays=[7, 10],
     WL=2048,
     WS=1024,
-    time_range=(0, 50000),
+    time_range=(0, 50_000),
 )
 
-println(size(result.T))  # first two raw integer binary columns
-println(size(result.t))  # derived time axis from result.T[:, 1]
-println(size(result.A))  # all remaining raw binary columns
-println(size(result.ST))
-println(size(result.SY))
+println(size(result.T))   # first two integer columns from the native output
+println(size(result.t))   # derived time axis
+println(size(result.A))   # remaining coefficient/error columns
+println(size(result.ST))  # flavor-specific output matrix
+println(size(result.CT))
 ```
 
-`channels` is optional for `run_DDA`. If it is omitted or set to `nothing`, the
-wrapper does not pass `-CH_list` and leaves channel selection to the binary.
-Pass `load_results=false` to execute the binary without parsing output files
-into Julia; the call returns `nothing`. If output files should be kept in this
-mode, pass an explicit `out_fn`.
+`channels` is optional. If omitted or set to `nothing`, no `-CH_list` is passed
+and channel selection is left to the binary.
+
+Use `load_results=false` when the binary should run without loading output files
+into Julia:
 
 ```julia
 run_DDA(
-    file_path="recording.edf",
-    channels=[1, 2, 3, 4],
+    file_path="recording.ascii",
     flavors=["ST"],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    input_format=:ascii,
     model=[1, 2, 10],
-    derivative_points=3,
-    order=4,
+    derivative_points=4,
+    order=3,
     delays=[7, 10],
     out_fn="dda-output/run1",
     load_results=false,
 )
 ```
 
+The typed helpers `run_st`, `run_ct`, and `run_de` call the same execution path
+with common flavor defaults.
+
 ## Structure Selection
 
-`make_MOD` generates the DDA model library `MOD` used by the original
-structure-selection scripts. `N_MOD` is the number of monomial terms per model,
-`DDAorder` is the polynomial order, and `nr_delays` defaults to `2`.
+Structure selection has two recommended steps:
+
+1. `structure_selection_compute` computes and caches DDA outputs.
+2. `structure_selection_select` reads cached outputs and chooses the lowest-error
+   model/delay combination.
+
+This split is useful on shared machines because expensive binary runs can be
+reused, inspected, and selected over different channel subsets without rerunning
+DDA.
+
+### Build and Inspect MOD
+
+`make_MOD(N_MOD, DDAorder; nr_delays=2)` creates Claudia-style binary model
+matrices. Each row is one candidate model. Each column corresponds to one
+monomial in the printed `P_DDA` table.
 
 ```julia
 MOD = make_MOD(3, 3)
 print_structure_selection(MOD, 3)
 ```
 
-The printer writes the `P_DDA` monomial encoding table, a checkmark table where
-each `MOD` column corresponds to a `P_DDA` monomial, and each `MOD` row as a
-Unicode equation for direct terminal inspection, for example
-`ẋ = a₁·x₁ + a₂·x₂²`. The low-level terminal printer is available as
-`write_model_terminal(...)`; `write_model_LaTeX(...)` remains available when
-LaTeX output is needed.
+The terminal printer shows `P_DDA`, a compact checkmark table for `MOD`, and a
+Unicode model equation for each row. `write_model_LaTeX` remains available when
+LaTeX output is needed explicitly.
 
-`structure_selection` evaluates candidate `-MODEL` and `-TAU` combinations
-with the existing `run_DDA` path and returns the lowest-error candidate. Pass
-explicit `candidate_models`, an existing `MOD`, or `N_MOD` plus `DDAorder` to
-generate candidates with `make_MOD`. Pass `delays` as a flat delay pool to
-write Claudia-style `TAU_ALL__...` files for each model symmetry class, or pass
-nested delay vectors for explicit delay candidates.
+### Compute Cached DDA Outputs
 
 ```julia
-selection = structure_selection(
+run = structure_selection_compute(
     file_path="recording.ascii",
-    channels=[1, 2],
+    channels=collect(1:11),
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+    input_format=:ascii,
     N_MOD=3,
     DDAorder=3,
     delays=(4 + 1):40,
     derivative_points=4,
     WL=3000,
     WS=200,
-    input_format=:ascii,
-    prefix="/scratch/my-run",
+    prefix="RUN1",
 )
+```
+
+If `MOD` is omitted, `N_MOD` and `DDAorder` are used to call `make_MOD`. If
+`MOD_numbers` is omitted, every row of `MOD` is computed. If `channels` is
+omitted, no `-CH_list` is passed and the binary runs over its default channel
+set.
+
+`prefix` is a folder. It is created if needed. The compute step writes generated
+tau files and DDA outputs there, for example:
+
+```text
+RUN1/TAU_ALL__1_0
+RUN1/TAU_ALL__2_1
+RUN1/structure_selection_01_02_10_ST
+RUN1/structure_selection_01_02_10.info
+```
+
+Output names encode the active `MOD` column indices as two-digit values joined
+by underscores. Existing complete outputs are reused rather than overwritten.
+Candidates are evaluated in randomized order by default; pass `randomize=false`
+for deterministic order.
+
+### Select From Cached Outputs
+
+```julia
+selection = structure_selection_select(run; channels=[1])
 
 println(selection.best_model)
 println(selection.best_delays)
 println(selection.best_score)
 ```
 
-By default, `structure_selection` uses `model_scope=:joint`, which selects one
-model/delay combination for all requested channels together. Omit `channels` or
-pass `channels=nothing` to let the DDA binary run over all channels. Pass
-`model_scope=:per_channel` or `model_scope="per_channel"` to run the same
-candidate search independently for each channel and return one selected model
-per channel.
+`structure_selection_select` does not run the DDA binary. It only reads files in
+`run.prefix`. If `channels` is omitted, all channels found in the cached output
+are scored together. If a compute run used explicit channel IDs, selection maps
+those same IDs back to their cached positions. `channel=[...]` is accepted as a
+singular alias for `channels=[...]`.
 
-Candidate models use the same encoding as `run_DDA`: either vectors of binary
-`-MODEL` indices or matrices whose rows are monomial encodings. The old
-`candidate_delays` keyword remains as an alias for nested explicit delay
-candidates, but new code should use `delays`. A flat vector or range such as
-`delays=[10, 20, 30]` or `delays=(derivative_points + 1):TM` is treated as a
-delay pool and written to model-specific tau files in one generated artifact
-folder per structure-selection call. Pass `out_dir` to control where that
-folder is created, or pass `prefix` to choose the output folder for
-generated tau files and structure-selection outputs. For example,
-`prefix="/scratch/my-run"` creates that folder and writes files such
-as `/scratch/my-run/TAU_ALL__1_0`,
-`/scratch/my-run/TAU_ALL__2_1`, and
-`/scratch/my-run/structure_selection_01_02_10_ST`, avoiding systems where
-`/tmp` is not writable. Structure-selection output names encode active `MOD`
-column indices as two-digit numbers separated by underscores. Pool-mode
-candidates are evaluated in randomized order by default, and an existing
-`*_ST` output is reused instead of rerun. Artifacts are retained by default for
-external inspection; pass `cleanup_on_error=true` to delete only automatically
-generated artifact folders if the selection call errors.
-
-The structured variant is also available:
+Pass `model_scope=:per_channel` to choose one model/delay combination per
+channel:
 
 ```julia
-raw = run_analysis_structured(
-    file_path="recording.edf",
-    channels=[1, 2, 3],
-    flavors=["ST", "DE"],
-    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-)
+per_channel = structure_selection_select(run; model_scope=:per_channel)
 ```
 
-## Variant-Specific Helpers
+The old one-shot `structure_selection(...)` wrapper is still available for
+small interactive runs. New long-running workflows should prefer
+`structure_selection_compute` plus `structure_selection_select`.
 
-The package also provides typed wrappers:
+## Parameter Notes
 
-- `run_st(file_path=..., channels=...; ...)`
-- `run_ct(file_path=..., channels=...; ...)`
-- `run_de(file_path=..., channels=...; ...)`
+- Julia channel indices are 1-based.
+- `input_format` accepts `:ascii`, `:edf`, `"ascii"`, or `"edf"`. If omitted,
+  `.edf` files emit `-EDF`; other extensions emit `-ASCII`.
+- `model` maps to `-MODEL`. A vector is passed as model indices. A matrix is
+  interpreted row-wise as monomial encodings and converted to model indices.
+- `derivative_points` is the Julia name for the binary `-dm` parameter.
+- `WL` and `WS` map to `-WL` and `-WS`. They default to `nothing` and are not
+  passed unless specified.
+- `WL_CT` and `WS_CT` map to `-WL_CT` and `-WS_CT`.
+- `tau_file` maps to `-TAU_file`. When provided, direct `delays` are ignored
+  for command generation and no `-TAU` list is passed.
+- `tau2`, `model2`, `no_norm`, and `WN_list` pass through to `-TAU2`,
+  `-MODEL2`, `-NoNorm`, and `-WN_list` when specified.
+- `sampling_rate=nothing` is the default and does not pass `-SR`. A scalar maps
+  to `-SR N`; a tuple maps to `-SR N1 N2`.
+- `select=[...]` passes a raw `-SELECT` mask and overrides `flavors`.
+- `out_fn=nothing` uses a temporary output base. Pass `out_fn` to keep output
+  files at a specific path.
 
-Use `run_ct(...)` for pairwise CT analysis across multiple channels. The generic `run_DDA(...)` function is the raw binary wrapper.
+## Result Objects
 
-Each wrapper also accepts an in-memory `channels × samples` matrix instead of a file path:
+Parsed `run_DDA` results expose:
 
-```julia
-data = randn(3, 10_000)
-result = run_st(
-    data=data;
-    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    WL=200,
-    WS=100,
-)
-```
+- `result.T`: first two integer columns of the native output.
+- `result.t`: derived time axis, computed from `T[:, 1]`, `TM`,
+  `derivative_points`, and `sampling_rate` when available.
+- `result.A`: remaining native output columns for the first returned flavor.
+- `result.ST`, `result.CT`, `result.CD`, `result.DE`, `result.SY`: direct
+  flavor matrices when those outputs are present.
 
-## Important Parameter Notes
-
-- `channels` are 1-indexed everywhere in the Julia API
-- File-based calls infer channel labels from EDF headers and from optional ASCII/TSV header rows. Pass `channel_labels` to override them explicitly.
-- File-based calls infer the binary input flag from the extension by default: `.edf` emits `-EDF`, all other extensions emit `-ASCII`. Pass `input_format=:ascii` or `input_format=:edf` to override this manually; string values such as `input_format="ascii"` are also accepted.
-- `model` maps to the binary `-MODEL` argument. Pass a vector of `-MODEL` indices directly, or pass a matrix whose rows are monomial encodings; matrix rows are converted to indices using `nr_tau` and `order`. If you pass a custom model, also pass explicit `derivative_points` and `order`
-- `derivative_points` is the preferred Julia name for the binary `-dm` parameter and defaults to `3`
-- `WL` and `WS` map to the binary `-WL` and `-WS` arguments. Both default to `nothing`; unset values are not passed to the binary.
-- `-WLms` and `-WSms` are special binary flags and are intentionally not emitted by this wrapper.
-- `WL_CT` and `WS_CT` are channel-group parameters, not temporal window aliases. `run_DDA` emits each flag at most once. The legacy aliases `ct_window_length` and `ct_window_step` are accepted when they agree with `WL_CT` and `WS_CT`, and conflicting values raise an error.
-- `run_DDA` accepts raw passthrough keywords for advanced binary options: `tau_file::String` maps to `-TAU_file`, `tau2::Vector{Int}` maps to `-TAU2`, `model2::Vector{Int}` maps to `-MODEL2`, `no_norm::Bool` maps to `-NoNorm`, and `WN_list::Vector{Int}` maps to `-WN_list`. These default to `nothing` or `false` and are not passed unless specified. When `tau_file` is specified, `delays` are ignored for shell command generation and no direct `-TAU` list is passed.
-- `run_DDA` executes the requested binary command once and parses the native output files produced by the binary, including mixed `ST`/`CT` runs.
-- `select` can be passed to `run_DDA(...)` or `run_analysis_structured(...)` as a raw `-SELECT` mask. When present, it overrides the string `flavors` list
-- Low-level `run_DDA` results expose each returned flavor matrix directly as a property, for example `result.ST` and `result.CT`. Top-level `result.T`, `result.t`, and `result.A` mirror the first returned flavor for backward compatibility.
-- `TM` is used only for `result.t` and defaults to `max(delays)`
-- `sampling_rate` is optional and defaults to `nothing`. When omitted, no `-SR` flag is passed. A scalar maps to `-SR N`; a tuple maps to `-SR N1 N2`.
-- `out_fn` is `nothing` by default. In that case the wrapper uses a temporary output base for the call. If you pass `out_fn`, that exact value is sent to `-OUT_FN`
+File-based calls infer labels from EDF headers or optional ASCII/TSV header
+rows. Pass `channel_labels` to override labels explicitly.
 
 ## Low-Level Helpers
 
 ```julia
 mask = generate_select_mask(["ST", "SY"])
-println(mask)                      # [1, 0, 0, 0, 0, 1]
-println(format_select_mask(mask)) # "1 0 0 0 0 1"
+println(format_select_mask(mask))  # "1 0 0 0 0 1"
 
 st = get_variant_by_abbrev("ST")
 println(st.name)
-println(st.output_suffix)
 
 path = find_binary("/opt/dda/bin/run_DDA_AsciiEdf")
 println(path)
@@ -240,13 +230,13 @@ println(path)
 
 ## Flavors
 
-| Abbreviation | Name                 | Description                                     
-| ------------ | -----------------    | ----------------------------------------------- 
-| `ST`         | Single Timeseries    | Analyzes individual channels independently      
-| `CT`         | Cross-Timeseries     | DDA on multiple channels simultaniously   
-| `CD`         | Cross-Dynamical      | Analyzes directed causal relationships          
-| `DE`         | Dynamical Ergodicity | Tests for dynamical similarity in dynamical systems 
-| `SY`         | Synchronization      | Detects synchronized behavior between signals   
+| Abbreviation | Name                 |
+| ------------ | -------------------- |
+| `ST`         | Single Timeseries    |
+| `CT`         | Cross-Timeseries     |
+| `CD`         | Cross-Dynamical      |
+| `DE`         | Dynamical Ergodicity |
+| `SY`         | Synchronization      |
 
 ## License
 

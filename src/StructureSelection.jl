@@ -9,6 +9,7 @@ using ..Runner: run_DDA
 
 export ChannelStructureSelectionResult, PerChannelStructureSelectionResult
 export StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection
+export StructureSelectionRun, structure_selection_compute, structure_selection_select
 export print_structure_selection, write_model_terminal, write_model_LaTeX
 
 const _POOL_LOCK_OWNER_FILE = "owner"
@@ -52,6 +53,22 @@ struct PerChannelStructureSelectionResult
     results::Vector{ChannelStructureSelectionResult}
 end
 
+"""Metadata for a structure-selection DDA output cache."""
+struct StructureSelectionRun
+    prefix::String
+    MOD::Matrix{Int}
+    DDAorder::Int
+    nr_delays::Int
+    delays::Vector{Int}
+    channels::Union{Vector{Int}, Nothing}
+    model_numbers::Vector{Int}
+    derivative_points::Int
+    tau_file_suffix::String
+    trial_prefix::String
+end
+
+const _LAST_STRUCTURE_SELECTION_RUN = Ref{Union{StructureSelectionRun, Nothing}}(nothing)
+
 """
     structure_selection(; file_path, channels=nothing, binary_path=nothing,
         candidate_models=nothing, MOD=nothing, N_MOD=nothing,
@@ -75,6 +92,36 @@ With `model_scope=:joint`, one model is selected across all channels. With
 """
 function structure_selection(; kwargs...)::Union{StructureSelectionResult, PerChannelStructureSelectionResult}
     return _structure_selection(run_DDA; kwargs...)
+end
+
+"""
+    structure_selection_compute(; file_path, prefix, delays, derivative_points,
+        MOD=nothing, N_MOD=nothing, DDAorder, MOD_numbers=nothing, channels=nothing, ...)
+
+Compute the cached DDA outputs needed for structure selection. This function
+does not select a model.
+"""
+function structure_selection_compute(; kwargs...)::StructureSelectionRun
+    return _structure_selection_compute(run_DDA; kwargs...)
+end
+
+"""
+    structure_selection_select([run]; channels=nothing, channel=nothing,
+        MOD_numbers=nothing, model_scope=:joint)
+
+Select the best model and delays from cached structure-selection outputs.
+This function only reads existing files.
+"""
+function structure_selection_select(run::StructureSelectionRun; kwargs...)
+    return _structure_selection_select(run; kwargs...)
+end
+
+function structure_selection_select(; run=nothing, kwargs...)
+    selected_run = run === nothing ? _LAST_STRUCTURE_SELECTION_RUN[] : run
+    selected_run === nothing && error(
+        "No structure-selection run is available; call `structure_selection_compute` or pass a `StructureSelectionRun`.",
+    )
+    return _structure_selection_select(selected_run; kwargs...)
 end
 
 """
@@ -438,6 +485,166 @@ function _structure_selection(
         end
         rethrow()
     end
+end
+
+function _structure_selection_compute(
+    run_once::Function;
+    file_path,
+    prefix,
+    channels=nothing,
+    MOD=nothing,
+    N_MOD=nothing,
+    DDAorder=nothing,
+    order=nothing,
+    nr_delays::Integer=2,
+    delays=nothing,
+    candidate_delays=nothing,
+    derivative_points,
+    binary_path=nothing,
+    input_format=nothing,
+    WL=nothing,
+    WS=nothing,
+    MOD_numbers=nothing,
+    tau_file_suffix::AbstractString="",
+    randomize::Bool=true,
+    rng=Random.GLOBAL_RNG,
+    _trial_prefix::AbstractString="structure_selection",
+    kwargs...,
+)::StructureSelectionRun
+    haskey(kwargs, :tau_file_prefix) && error("Pass `prefix`, not `tau_file_prefix`")
+    prefix === nothing && error("`prefix` is required for `structure_selection_compute`")
+    delay_spec = _resolve_structure_delays(delays, candidate_delays, nothing)
+    delay_spec.mode == :pool || error("`structure_selection_compute` expects `delays` as a flat delay pool")
+    derivative_points !== nothing || error("`derivative_points` is required")
+    model_order = _resolve_structure_order(order, DDAorder)
+    MOD_matrix = _resolve_MOD(MOD, N_MOD, model_order; nr_delays=nr_delays)
+    model_numbers = _resolve_MOD_numbers(MOD_matrix, MOD_numbers)
+    output_root = expanduser(String(prefix))
+    mkpath(output_root)
+    P_DDA = _p_dda(model_order; nr_delays=nr_delays)
+    tau_prefix = joinpath(output_root, "TAU_ALL__")
+    channel_list = channels === nothing ? nothing : Int[channels...]
+
+    for model_number in _ordered_model_numbers(model_numbers, randomize, rng)
+        model = _model_from_MOD_row(MOD_matrix, model_number)
+        nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
+        tau_rows = _tau_rows(delay_spec.values, nr, sym)
+        tau_path = _tau_file_path(tau_prefix, nr, sym, tau_file_suffix)
+        executable_model = _model_for_tau_file(
+            model,
+            P_DDA;
+            nr_delays=nr_delays,
+            order=model_order,
+            nr_tau=nr,
+        )
+        model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
+        out_fn = _trial_out_fn(output_root, model_id, nothing, _trial_prefix)
+        _run_or_reuse_pool_output(out_fn, length(tau_rows)) do
+            _write_tau_file(tau_path, tau_rows)
+            run_once(;
+                file_path=file_path,
+                channels=channel_list,
+                flavors=["ST"],
+                binary_path=binary_path,
+                model=executable_model,
+                delays=first(tau_rows),
+                derivative_points=Int(derivative_points),
+                order=model_order,
+                nr_tau=nr,
+                tau_file=tau_path,
+                WL=WL,
+                WS=WS,
+                input_format=input_format,
+                out_fn=out_fn,
+                load_results=false,
+                kwargs...,
+            )
+        end
+    end
+
+    run = StructureSelectionRun(
+        output_root,
+        MOD_matrix,
+        model_order,
+        Int(nr_delays),
+        Int[delay_spec.values...],
+        channel_list,
+        model_numbers,
+        Int(derivative_points),
+        String(tau_file_suffix),
+        String(_trial_prefix),
+    )
+    _LAST_STRUCTURE_SELECTION_RUN[] = run
+    return run
+end
+
+function _structure_selection_select(
+    run::StructureSelectionRun;
+    channels=nothing,
+    channel=nothing,
+    MOD_numbers=nothing,
+    model_scope=:joint,
+    metric::Symbol=:mean_error,
+)
+    selected_channels = _resolve_selection_channel_argument(channels, channel)
+    model_numbers = _resolve_selected_run_models(run, MOD_numbers)
+    scope = _normalize_model_scope(model_scope)
+    if scope == :per_channel
+        groups = _selection_channel_groups(run, selected_channels, model_numbers, :per_channel)
+        results = ChannelStructureSelectionResult[]
+        for (idx, group) in enumerate(groups)
+            selection = _structure_selection_select_joint(run, model_numbers, group, metric)
+            push!(results, ChannelStructureSelectionResult(idx, first(group), selection))
+        end
+        return PerChannelStructureSelectionResult(results)
+    end
+
+    groups = _selection_channel_groups(run, selected_channels, model_numbers, :joint)
+    return _structure_selection_select_joint(run, model_numbers, first(groups), metric)
+end
+
+function _structure_selection_select_joint(
+    run::StructureSelectionRun,
+    model_numbers::AbstractVector{<:Integer},
+    channels::AbstractVector{<:Integer},
+    metric::Symbol,
+)::StructureSelectionResult
+    P_DDA = _p_dda(run.DDAorder; nr_delays=run.nr_delays)
+    trials = StructureSelectionTrial[]
+    best_trial = nothing
+
+    for model_number in model_numbers
+        model = _model_from_MOD_row(run.MOD, model_number)
+        nr, sym = _model_symmetry(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
+        tau_rows = _tau_rows(run.delays, nr, sym)
+        tau_path = _tau_file_path(joinpath(run.prefix, "TAU_ALL__"), nr, sym, run.tau_file_suffix)
+        isfile(tau_path) || continue
+        tau_rows = _read_tau_rows(tau_path)
+        model_id = _model_filename_id(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
+        out_fn = _trial_out_fn(run.prefix, model_id, nothing, run.trial_prefix)
+        st_path = "$(out_fn)_ST"
+        errors = _read_structure_selection_errors(st_path, length(model) + 1, length(tau_rows))
+        errors === nothing && continue
+        positions = _channel_positions(run, channels, size(errors, 1))
+        scores = _score_structure_error_rows(errors, positions, metric)
+        best_idx = argmin(scores)
+        result = (variant_results=[(variant_id="ST", errors=errors)],)
+        trial = StructureSelectionTrial(model, Int[tau_rows[best_idx]...], scores[best_idx], result, out_fn, tau_path)
+        push!(trials, trial)
+        if best_trial === nothing || trial.score < best_trial.score
+            best_trial = trial
+        end
+    end
+
+    best_trial === nothing && error("No usable cached structure-selection outputs were found")
+    return StructureSelectionResult(
+        best_trial.model,
+        best_trial.delays,
+        best_trial.score,
+        best_trial.result,
+        trials,
+        run.prefix,
+    )
 end
 
 function _structure_selection_resolved(
@@ -875,6 +1082,38 @@ function _resolve_candidate_models(
     error("Provide `candidate_models`, `MOD`, or `N_MOD` for structure selection")
 end
 
+function _resolve_MOD(MOD, N_MOD, DDAorder::Integer; nr_delays::Integer)::Matrix{Int}
+    if MOD !== nothing
+        MOD_matrix = Matrix{Int}(MOD)
+        _validate_binary_MOD(MOD_matrix)
+        P_DDA = _p_dda(DDAorder; nr_delays=nr_delays)
+        size(MOD_matrix, 2) == size(P_DDA, 1) || error(
+            "MOD has $(size(MOD_matrix, 2)) columns, but P_DDA has $(size(P_DDA, 1)) monomials",
+        )
+        return MOD_matrix
+    end
+    N_MOD !== nothing || error("Pass `MOD` or `N_MOD`")
+    return make_MOD(N_MOD, DDAorder; nr_delays=nr_delays)
+end
+
+function _resolve_MOD_numbers(MOD::AbstractMatrix, MOD_numbers)::Vector{Int}
+    numbers = MOD_numbers === nothing ? collect(1:size(MOD, 1)) : Int[MOD_numbers...]
+    isempty(numbers) && error("`MOD_numbers` must contain at least one model row")
+    all(number -> 1 <= number <= size(MOD, 1), numbers) ||
+        error("`MOD_numbers` entries must be in 1:$(size(MOD, 1))")
+    return numbers
+end
+
+function _resolve_selected_run_models(run::StructureSelectionRun, MOD_numbers)::Vector{Int}
+    selected = MOD_numbers === nothing ? run.model_numbers : Int[MOD_numbers...]
+    isempty(selected) && error("`MOD_numbers` must contain at least one model row")
+    allowed = Set(run.model_numbers)
+    all(number -> number in allowed, selected) || error(
+        "`MOD_numbers` must refer to model rows computed in the supplied structure-selection run",
+    )
+    return selected
+end
+
 function _models_from_MOD(MOD::AbstractMatrix{<:Integer})::Vector{Any}
     _validate_binary_MOD(MOD)
 
@@ -885,6 +1124,19 @@ function _models_from_MOD(MOD::AbstractMatrix{<:Integer})::Vector{Any}
         push!(models, active)
     end
     return models
+end
+
+function _model_from_MOD_row(MOD::AbstractMatrix{<:Integer}, model_number::Integer)::Vector{Int}
+    1 <= model_number <= size(MOD, 1) || error("Model row $model_number out of range")
+    active = findall(==(1), vec(MOD[model_number, :]))
+    isempty(active) && error("MOD row $model_number does not contain any active model terms")
+    return Int[active...]
+end
+
+function _ordered_model_numbers(numbers::Vector{Int}, randomize::Bool, rng)::Vector{Int}
+    randomize || return numbers
+    length(numbers) <= 1 && return numbers
+    return Random.shuffle(rng, numbers)
 end
 
 function _model_symmetry(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Integer, order::Integer)
@@ -998,6 +1250,17 @@ function _tau_file_path(
     return "$(tau_prefix)$(nr)_$(sym)$(suffix)"
 end
 
+function _read_tau_rows(tau_path::AbstractString)::Vector{Vector{Int}}
+    rows = Vector{Vector{Int}}()
+    for line in eachline(tau_path)
+        stripped = strip(line)
+        isempty(stripped) && continue
+        push!(rows, parse.(Int, split(stripped)))
+    end
+    isempty(rows) && error("Tau file contains no rows: $tau_path")
+    return rows
+end
+
 function _write_tau_file(
     tau_path::AbstractString,
     tau_rows::AbstractVector{<:AbstractVector{<:Integer}},
@@ -1026,6 +1289,137 @@ function _tau_file_contents(tau_rows::AbstractVector{<:AbstractVector{<:Integer}
         println(buffer, join(row, " "))
     end
     return String(take!(buffer))
+end
+
+function _resolve_selection_channel_argument(channels, channel)
+    channels !== nothing && channel !== nothing && error("Pass `channels` or `channel`, not both")
+    return channel === nothing ? channels : channel
+end
+
+function _selection_channel_groups(
+    run::StructureSelectionRun,
+    channels,
+    model_numbers::AbstractVector{<:Integer},
+    model_scope::Symbol,
+)::Vector{Vector{Int}}
+    if channels === nothing
+        all_channels = run.channels === nothing ?
+                       collect(1:_infer_cached_channel_count(run, model_numbers)) :
+                       copy(run.channels)
+        return model_scope == :per_channel ? [[channel] for channel in all_channels] : [all_channels]
+    elseif channels isa AbstractVector{<:Integer}
+        selected = Int[channels...]
+        isempty(selected) && error("`channels` cannot be empty")
+        return model_scope == :per_channel ? [[channel] for channel in selected] : [selected]
+    end
+
+    groups = Vector{Vector{Int}}()
+    for group in channels
+        group isa AbstractVector{<:Integer} || error("Channel groups must be integer vectors")
+        values = Int[group...]
+        isempty(values) && error("Channel groups cannot be empty")
+        push!(groups, values)
+    end
+    isempty(groups) && error("`channels` cannot be empty")
+    return groups
+end
+
+function _infer_cached_channel_count(
+    run::StructureSelectionRun,
+    model_numbers::AbstractVector{<:Integer},
+)::Int
+    P_DDA = _p_dda(run.DDAorder; nr_delays=run.nr_delays)
+    for model_number in model_numbers
+        model = _model_from_MOD_row(run.MOD, model_number)
+        nr, sym = _model_symmetry(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
+        tau_path = _tau_file_path(joinpath(run.prefix, "TAU_ALL__"), nr, sym, run.tau_file_suffix)
+        isfile(tau_path) || continue
+        tau_rows = _read_tau_rows(tau_path)
+        model_id = _model_filename_id(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
+        st_path = "$(_trial_out_fn(run.prefix, model_id, nothing, run.trial_prefix))_ST"
+        errors = _read_structure_selection_errors(st_path, length(model) + 1, length(tau_rows))
+        errors === nothing && continue
+        return size(errors, 1)
+    end
+    error("Could not infer channel count from cached structure-selection outputs")
+end
+
+function _channel_positions(
+    run::StructureSelectionRun,
+    channels::AbstractVector{<:Integer},
+    n_channels::Integer,
+)::Vector{Int}
+    if run.channels === nothing
+        positions = Int[channels...]
+    else
+        positions = Int[]
+        for channel in channels
+            idx = findfirst(==(channel), run.channels)
+            idx === nothing && error("Channel $channel was not part of the structure-selection compute run")
+            push!(positions, idx)
+        end
+    end
+    all(position -> 1 <= position <= n_channels, positions) ||
+        error("Requested channels must resolve to positions in 1:$n_channels")
+    return positions
+end
+
+function _read_structure_selection_errors(
+    st_path::AbstractString,
+    n_fields::Integer,
+    n_tau_rows::Integer,
+)::Union{Matrix{Float64}, Nothing}
+    isfile(st_path) || return nothing
+    raw = _read_numeric_matrix(st_path)
+    raw === nothing && return nothing
+    size(raw, 2) > 2 || return nothing
+    payload = raw[:, 3:end]
+    denominator = Int(n_fields) * Int(n_tau_rows)
+    if denominator <= 0 || size(payload, 2) % denominator != 0
+        return nothing
+    end
+    n_channels = div(size(payload, 2), denominator)
+    n_channels > 0 || return nothing
+    summary = Float64[median(view(payload, :, col)) for col in 1:size(payload, 2)]
+    values = reshape(summary, Int(n_fields), n_channels, Int(n_tau_rows))
+    return Matrix(values[end, :, :])
+end
+
+function _read_numeric_matrix(path::AbstractString)::Union{Matrix{Float64}, Nothing}
+    rows = Vector{Vector{Float64}}()
+    n_cols = 0
+    try
+        for line in eachline(path)
+            stripped = strip(line)
+            isempty(stripped) && continue
+            values = parse.(Float64, split(stripped))
+            if n_cols == 0
+                n_cols = length(values)
+            elseif length(values) != n_cols
+                return nothing
+            end
+            push!(rows, values)
+        end
+    catch
+        return nothing
+    end
+    isempty(rows) && return nothing
+    matrix = Matrix{Float64}(undef, length(rows), n_cols)
+    for row_idx in eachindex(rows)
+        matrix[row_idx, :] = rows[row_idx]
+    end
+    return matrix
+end
+
+function _score_structure_error_rows(
+    errors::AbstractMatrix{<:Real},
+    channel_positions::AbstractVector{<:Integer},
+    metric::Symbol,
+)::Vector{Float64}
+    return [
+        _score_values(vec(errors[channel_positions, tau_idx]), metric)
+        for tau_idx in 1:size(errors, 2)
+    ]
 end
 
 function _best_tau_row_score(result, metric::Symbol, tau_rows::AbstractVector{<:AbstractVector{<:Integer}})
