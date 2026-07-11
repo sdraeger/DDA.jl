@@ -138,13 +138,6 @@ end
     DirectedPairs
 end
 
-function channel_format_from_string(s::AbstractString)::ChannelFormat
-    s == "individual" && return Individual
-    s == "pairs" && return Pairs
-    s == "directed_pairs" && return DirectedPairs
-    error("Unknown channel format: $s")
-end
-
 # =============================================================================
 # TYPES
 # =============================================================================

@@ -19,15 +19,6 @@ function _write_temp_ascii(data::AbstractMatrix{<:Real})::String
 end
 
 function _resolve_labels(
-    channels::AbstractVector{<:Integer},
-    channel_labels::Union{Vector{String}, Nothing},
-)::Vector{String}
-    labels = channel_labels === nothing ? ["ch$(ch)" for ch in channels] : copy(channel_labels)
-    length(labels) == length(channels) || error("Expected $(length(channels)) channel labels, got $(length(labels))")
-    return labels
-end
-
-function _resolve_labels(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer},
     channel_labels::Union{Vector{String}, Nothing},

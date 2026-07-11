@@ -13,18 +13,16 @@ For stride=2 (CD): 1 coefficient + 1 error per directed pair.
 For stride=1 (DE/SY): 1 value (ergodicity/synchronization measure).
 """
 function _read_numeric_rows(filepath::String)::Vector{Vector{Float64}}
-    lines = readlines(filepath)
     data_rows = Vector{Vector{Float64}}()
-
-    for line in lines
-        stripped = strip(line)
-        (isempty(stripped) || startswith(stripped, '#')) && continue
-        parts = split(stripped)
-        values = tryparse.(Float64, parts)
-        all(v -> v !== nothing, values) || continue
-        push!(data_rows, Float64[v for v in values])
+    open(filepath) do io
+        for line in eachline(io)
+            stripped = strip(line)
+            (isempty(stripped) || startswith(stripped, '#')) && continue
+            values = tryparse.(Float64, split(stripped))
+            all(!isnothing, values) || continue
+            push!(data_rows, Float64[value for value in values])
+        end
     end
-
     return data_rows
 end
 
@@ -84,11 +82,7 @@ function _normalized_window_bounds(
     request::DDARequest,
     variant_abbrev::AbstractString,
 )::Tuple{Vector{Int64}, Vector{Int64}}
-    return _normalized_window_bounds(
-        request,
-        variant_abbrev,
-        0,
-    )
+    return _normalized_window_bounds(request, variant_abbrev, 0)
 end
 
 function _normalized_window_bounds(
@@ -218,37 +212,6 @@ function _coefficient_arrays(
     end
 
     return coefficients, errors
-end
-
-# =============================================================================
-# LEGACY PARSING (kept for backward compat)
-# =============================================================================
-
-"""Parse output file extracting only the first coefficient (legacy helper)."""
-function parse_output_file(filepath::String, stride::Integer)::Matrix{Float64}
-    data_rows = _read_numeric_rows(filepath)
-    isempty(data_rows) && return Matrix{Float64}(undef, 0, 0)
-
-    num_timepoints = length(data_rows)
-    num_data_cols = length(data_rows[1]) - 2
-
-    if num_data_cols <= 0 || num_data_cols % stride != 0
-        return Matrix{Float64}(undef, 0, 0)
-    end
-
-    num_channels = div(num_data_cols, stride)
-    first_coefficients = Matrix{Float64}(undef, num_channels, num_timepoints)
-
-    for (t, row) in enumerate(data_rows)
-        for ch in 1:num_channels
-            col_idx = 3 + (ch - 1) * stride
-            if col_idx <= length(row)
-                first_coefficients[ch, t] = row[col_idx]
-            end
-        end
-    end
-
-    return first_coefficients
 end
 
 function _channel_labels_for_variant(

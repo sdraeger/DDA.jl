@@ -72,6 +72,18 @@ function _finalize_output_info(
     return _ensure_logical_command_info(runner, request, output_base)
 end
 
+function _with_DDA_output(operation::Function, runner::DDARunner, request::DDARequest)
+    isfile(request.file_path) || error("Input file not found: $(request.file_path)")
+    output_base, cleanup_output = _resolve_output_base(request)
+    try
+        _run_command(runner, request, output_base)
+        return operation(output_base)
+    finally
+        _finalize_output_info(runner, request, output_base, cleanup_output)
+        cleanup_output && cleanup_temp_files(output_base, request.variants)
+    end
+end
+
 function _parse_structured_outputs(
     request::DDARequest,
     output_base::String,
@@ -95,17 +107,8 @@ end
 
 """Internal structured execution helper used by the keyword-only public API."""
 function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{String, Vector{StructuredChannelData}}
-    if !isfile(request.file_path)
-        error("Input file not found: $(request.file_path)")
-    end
-
-    output_base, cleanup_output = _resolve_output_base(request)
-    try
-        _run_command(runner, request, output_base)
+    return _with_DDA_output(runner, request) do output_base
         return _parse_structured_outputs(request, output_base, request.variants)
-    finally
-        _finalize_output_info(runner, request, output_base, cleanup_output)
-        cleanup_output && cleanup_temp_files(output_base, request.variants)
     end
 end
 
@@ -140,20 +143,9 @@ end
 
 """Internal legacy execution helper used by the keyword-only public API."""
 function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
-    if !isfile(request.file_path)
-        error("Input file not found: $(request.file_path)")
-    end
-
     analysis_id = string(UUIDs.uuid4())
-    output_base, cleanup_output = _resolve_output_base(request)
-
-    variant_results = VariantResultData[]
-    try
-        _run_command(runner, request, output_base)
-        variant_results = parse_results_legacy(request, output_base)
-    finally
-        _finalize_output_info(runner, request, output_base, cleanup_output)
-        cleanup_output && cleanup_temp_files(output_base, request.variants)
+    variant_results = _with_DDA_output(runner, request) do output_base
+        return parse_results_legacy(request, output_base)
     end
 
     if isempty(variant_results)
@@ -178,16 +170,8 @@ end
 
 """Execute the DDA binary without parsing result files into Julia."""
 function _run_DDA_command_only(runner::DDARunner, request::DDARequest)::Nothing
-    if !isfile(request.file_path)
-        error("Input file not found: $(request.file_path)")
-    end
-
-    output_base, cleanup_output = _resolve_output_base(request)
-    try
-        _run_command(runner, request, output_base)
-    finally
-        _finalize_output_info(runner, request, output_base, cleanup_output)
-        cleanup_output && cleanup_temp_files(output_base, request.variants)
+    _with_DDA_output(runner, request) do _
+        return nothing
     end
     return nothing
 end

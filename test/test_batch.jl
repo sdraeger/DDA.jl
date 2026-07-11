@@ -102,4 +102,25 @@ using DelayDifferentialAnalysis
 
         @test_throws ErrorException collect_results([r1, r2])
     end
+
+    @testset "run_batch dispatches through the keyword-only API" begin
+        directory = mktempdir()
+        data_path = joinpath(directory, "data.ascii")
+        binary_path = joinpath(directory, Sys.iswindows() ? "dda.exe" : "dda")
+        write(data_path, "1 2\n3 4\n")
+        touch(binary_path)
+
+        try
+            caught = try
+                run_batch([data_path]; binary_path=binary_path, progress=false)
+                nothing
+            catch error
+                error
+            end
+            @test caught !== nothing
+            @test !(caught isa MethodError)
+        finally
+            rm(directory; recursive=true, force=true)
+        end
+    end
 end

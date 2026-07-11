@@ -126,18 +126,12 @@ function _resolve_derivative_points(
     derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
 )::Int
-    provided = filter(!isnothing, Any[derivative_points, dm])
-    if !isempty(provided)
-        reference = Int(first(provided))
-        for value in provided[2:end]
-            Int(value) == reference || error(
-                "`derivative_points` and `dm` disagree",
-            )
-        end
-        reference > 0 || error("Derivative points must be positive")
-        return reference
+    if derivative_points !== nothing && dm !== nothing && derivative_points != dm
+        error("`derivative_points` and `dm` disagree")
     end
-    return DDADefaults.DERIVATIVE_POINTS
+    value = something(derivative_points, dm, DDADefaults.DERIVATIVE_POINTS)
+    value > 0 || error("Derivative points must be positive")
+    return value
 end
 
 function _validate_custom_model_request(
@@ -188,7 +182,7 @@ function _normalize_sampling_rate(
         return _normalize_sampling_rate_value("Sampling rate", sampling_rate)
     end
 
-    values = sampling_rate isa Tuple ? collect(sampling_rate) : collect(sampling_rate)
+    values = collect(sampling_rate)
     length(values) == 2 || error("Sampling rate must be `nothing`, a scalar, or exactly two numbers")
 
     first_rate = _normalize_sampling_rate_value("First sampling rate", values[1])

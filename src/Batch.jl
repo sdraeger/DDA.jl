@@ -136,7 +136,7 @@ function run_batch(
         else
             _load_ascii(filepath)
         end
-        result = run_fn(data; run_kwargs...)
+        result = run_fn(; data=data, run_kwargs...)
         push!(results, result)
     end
 

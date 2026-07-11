@@ -88,7 +88,6 @@ export FileType, EDF, ASCII, get_flag, file_type_from_extension
 # --- Defaults (parameter constants) ---
 include("Defaults.jl")
 using .DDADefaults
-using .DDAFlags
 
 # --- Model encoding ---
 include("ModelEncoding.jl")
