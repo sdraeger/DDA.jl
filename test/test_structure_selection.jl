@@ -587,33 +587,37 @@ using DelayDifferentialAnalysis
     end
 
     @testset "pool output replaces stale same-host lock" begin
-        out_dir = mktempdir()
-        try
-            output_base = joinpath(out_dir, "structure_selection_04")
-            lock_path = "$(output_base).lock"
-            mkdir(lock_path)
-            write(
-                joinpath(lock_path, "owner"),
-                "pid=999999999\nhost=$(gethostname())\n",
-            )
-            calls = Ref(0)
+        if Sys.iswindows()
+            @test_skip false
+        else
+            out_dir = mktempdir()
+            try
+                output_base = joinpath(out_dir, "structure_selection_04")
+                lock_path = "$(output_base).lock"
+                mkdir(lock_path)
+                write(
+                    joinpath(lock_path, "owner"),
+                    "pid=999999999\nhost=$(gethostname())\n",
+                )
+                calls = Ref(0)
 
-            task = @async DelayDifferentialAnalysis.StructureSelection._run_or_reuse_pool_output(
-                output_base,
-                3,
-            ) do
-                calls[] += 1
-                return fake_errors([0.5, 0.2, 0.9])
+                task = @async DelayDifferentialAnalysis.StructureSelection._run_or_reuse_pool_output(
+                    output_base,
+                    3,
+                ) do
+                    calls[] += 1
+                    return fake_errors([0.5, 0.2, 0.9])
+                end
+                sleep(0.2)
+
+                @test istaskdone(task)
+                result = fetch(task)
+                @test calls[] == 1
+                @test DelayDifferentialAnalysis.StructureSelection._score_result(result, :minimum_error) == 0.2
+                @test !ispath(lock_path)
+            finally
+                rm(out_dir; recursive=true, force=true)
             end
-            sleep(0.2)
-
-            @test istaskdone(task)
-            result = fetch(task)
-            @test calls[] == 1
-            @test DelayDifferentialAnalysis.StructureSelection._score_result(result, :minimum_error) == 0.2
-            @test !ispath(lock_path)
-        finally
-            rm(out_dir; recursive=true, force=true)
         end
     end
 
