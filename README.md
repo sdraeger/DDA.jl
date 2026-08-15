@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/sdraeger/DelayDifferentialAnalysis.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/sdraeger/DelayDifferentialAnalysis.jl/actions/workflows/CI.yml)
 
-Julia bindings for the native DDA binary `run_DDA_AsciiEdf`.
+Julia interfaces for Delay Differential Analysis (DDA).
 
-The package is intentionally small: it builds the binary command, runs it, and
-parses the native output files into Julia objects when requested. It does not
-reimplement the DDA algorithm.
+The package supports both the established `run_DDA_AsciiEdf` binary and a native
+Julia implementation of the ST, CT, CD, DE, and SY flavors. The native engine
+can run on the CPU or use CUDA for its batched regression work.
 
 ## Installation
 
@@ -88,6 +88,49 @@ run_DDA(
 The typed helpers `run_st`, `run_ct`, and `run_de` call the same execution path
 with common flavor defaults.
 
+## Native Julia Engine
+
+`run_dda_matrix` runs DDA directly on a `samples × channels` matrix without an
+external binary. Channels and channel pairs use Julia's 1-based indices.
+
+```julia
+using DelayDifferentialAnalysis
+
+result = run_dda_matrix(
+    samples;
+    device="cpu",
+    channels=[1, 2, 3],
+    flavors=["ST", "CT", "CD", "DE", "SY"],
+    window_length=200,
+    window_step=100,
+    delays=[7, 10],
+    model_terms=[1, 2, 10],
+    derivative_points=4,
+    order=4,
+    nr_tau=2,
+)
+
+st = result["ST"]
+println(st.matrix)
+println(st.row_labels)
+```
+
+The CPU backend is the default. To use NVIDIA CUDA, install CUDA.jl in the
+active environment and select a device with `device="cuda"` or
+`device="cuda:0"`:
+
+```julia
+using Pkg
+Pkg.add("CUDA")
+
+result = run_dda_matrix(samples; device="cuda:0", flavors=["ST", "CT"])
+```
+
+CUDA.jl is optional and is loaded only for a CUDA device. Data preparation and
+flavor assembly remain on the CPU; CUDA accelerates the independent regression
+problems in batches. The native API and the external-binary API are separate,
+so existing `run_DDA`, `run_st`, `run_ct`, and `run_de` calls are unchanged.
+
 ## Structure Selection
 
 Structure selection has two recommended steps:
@@ -108,12 +151,13 @@ monomial in the printed `P_DDA` table.
 
 ```julia
 MOD = make_MOD(3, 3)
-print_structure_selection(MOD, 3)
+print_structure_selection(MOD)
 ```
 
 The terminal printer shows `P_DDA`, a compact checkmark table for `MOD`, and a
-Unicode model equation for each row. `write_model_LaTeX` remains available when
-LaTeX output is needed explicitly.
+Unicode model equation for each row. The polynomial order is inferred from the
+number of `MOD` columns. `write_model_LaTeX` remains available when LaTeX output
+is needed explicitly.
 
 ### Compute Cached DDA Outputs
 
@@ -161,6 +205,12 @@ selection = structure_selection_select(run; channels=[1])
 println(selection.best_model)
 println(selection.best_delays)
 println(selection.best_score)
+```
+
+Use `models` to restrict selection to specific cached `MOD` row numbers:
+
+```julia
+selection = structure_selection_select(run; channels=[1], models=[1, 3, 7])
 ```
 
 `structure_selection_select` does not run the DDA binary. It only reads files in

@@ -1,7 +1,8 @@
 """
     DelayDifferentialAnalysis
 
-Julia bindings for Delay Differential Analysis (DDA).
+Julia interfaces for Delay Differential Analysis (DDA), including external
+binary execution and a native CPU/CUDA engine.
 
 # High-Level API
 ```julia
@@ -94,6 +95,11 @@ include("ModelEncoding.jl")
 using .ModelEncoding
 export generate_monomials, model_matrix_to_encoding, monomial_to_text, monomial_to_latex
 export decode_model_encoding, visualize_model_space
+
+# --- Native Julia engine (CPU + optional CUDA) ---
+include("NativeDDA.jl")
+using .NativeDDA
+export NativeDDAResult, NativeFlavorResult, flavor_result, run_dda_matrix
 
 # --- Result types ---
 include("Results.jl")

@@ -14,23 +14,20 @@ function make_MOD(
     return _structure_selection_model_space(N_MOD, DDAorder; nr_delays=nr_delays)
 end
 """
-    print_structure_selection([io], MOD, DDAorder; nr_delays=2, x="x")
+    print_structure_selection([io], MOD; nr_delays=2, x="x")
 
 Print the `P_DDA` monomial encoding table, `MOD` as a model-by-term checkmark
 table, and each row of `MOD` as a Unicode model equation suitable for terminal
-inspection.
+inspection. The polynomial order is inferred from the number of `MOD` columns.
 """
 function print_structure_selection(
     io::IO,
-    MOD::AbstractMatrix{<:Integer},
-    DDAorder::Integer;
+    MOD::AbstractMatrix{<:Integer};
     nr_delays::Integer=2,
     x::AbstractString="x",
 )::Nothing
+    DDAorder = _infer_DDAorder(MOD; nr_delays=nr_delays)
     P_DDA = _p_dda(DDAorder; nr_delays=nr_delays)
-    size(MOD, 2) == size(P_DDA, 1) || error(
-        "MOD has $(size(MOD, 2)) columns, but P_DDA has $(size(P_DDA, 1)) monomials",
-    )
     _validate_binary_MOD(MOD)
 
     println(io, "P_DDA")
@@ -50,11 +47,24 @@ function print_structure_selection(
 end
 
 function print_structure_selection(
-    MOD::AbstractMatrix{<:Integer},
-    DDAorder::Integer;
+    MOD::AbstractMatrix{<:Integer};
     kwargs...,
 )::Nothing
-    return print_structure_selection(stdout, MOD, DDAorder; kwargs...)
+    return print_structure_selection(stdout, MOD; kwargs...)
+end
+
+function _infer_DDAorder(MOD::AbstractMatrix; nr_delays::Integer=2)::Int
+    n_terms = size(MOD, 2)
+    n_terms > 0 || error("MOD must contain at least one column")
+    order = 1
+    while true
+        generated_terms = size(_p_dda(order; nr_delays=nr_delays), 1)
+        generated_terms == n_terms && return order
+        generated_terms > n_terms && error(
+            "Cannot infer DDAorder from $n_terms MOD columns for nr_delays=$nr_delays",
+        )
+        order += 1
+    end
 end
 
 """
@@ -167,11 +177,12 @@ function _translate_digits(value::Integer, digits)::String
 end
 
 function _print_MOD_table(io::IO, MOD::AbstractMatrix{<:Integer})::Nothing
+    model_width = max(length("model"), ndigits(size(MOD, 1)))
     println(io, "MOD rows × P_DDA terms")
-    println(io, "model | ", join(string.(1:size(MOD, 2)), " | "))
+    println(io, lpad("model", model_width), " | ", join(string.(1:size(MOD, 2)), " | "))
     for row_idx in 1:size(MOD, 1)
         cells = [MOD[row_idx, col_idx] == 1 ? "✓" : " " for col_idx in 1:size(MOD, 2)]
-        println(io, row_idx, " | ", join(cells, " | "))
+        println(io, lpad(row_idx, model_width), " | ", join(cells, " | "))
     end
     return nothing
 end

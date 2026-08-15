@@ -107,10 +107,11 @@ end
 
 """
     structure_selection_select([run]; channels=nothing, channel=nothing,
-        MOD_numbers=nothing, model_scope=:joint)
+        models=nothing, MOD_numbers=nothing, model_scope=:joint)
 
 Select the best model and delays from cached structure-selection outputs.
-This function only reads existing files.
+`models` contains the cached `MOD` row numbers to compare. If omitted, every
+model computed in `run` is considered. This function only reads existing files.
 """
 function structure_selection_select(run::StructureSelectionRun; kwargs...)
     return _structure_selection_select(run; kwargs...)

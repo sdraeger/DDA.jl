@@ -78,10 +78,10 @@ end
 
 function _resolve_selected_run_models(run::StructureSelectionRun, MOD_numbers)::Vector{Int}
     selected = MOD_numbers === nothing ? run.model_numbers : Int[MOD_numbers...]
-    isempty(selected) && error("`MOD_numbers` must contain at least one model row")
+    isempty(selected) && error("`models`/`MOD_numbers` must contain at least one model row")
     allowed = Set(run.model_numbers)
     all(number -> number in allowed, selected) || error(
-        "`MOD_numbers` must refer to model rows computed in the supplied structure-selection run",
+        "`models`/`MOD_numbers` must refer to model rows computed in the supplied structure-selection run",
     )
     return selected
 end

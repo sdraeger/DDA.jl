@@ -93,12 +93,17 @@ function _structure_selection_select(
     run::StructureSelectionRun;
     channels=nothing,
     channel=nothing,
+    models=nothing,
     MOD_numbers=nothing,
     model_scope=:joint,
     metric::Symbol=:mean_error,
 )
     selected_channels = _resolve_selection_channel_argument(channels, channel)
-    model_numbers = _resolve_selected_run_models(run, MOD_numbers)
+    models !== nothing && MOD_numbers !== nothing && error(
+        "Pass `models` or `MOD_numbers`, not both",
+    )
+    selected_models = models === nothing ? MOD_numbers : models
+    model_numbers = _resolve_selected_run_models(run, selected_models)
     scope = _normalize_model_scope(model_scope)
     if scope == :per_channel
         groups = _selection_channel_groups(run, selected_channels, model_numbers, :per_channel)

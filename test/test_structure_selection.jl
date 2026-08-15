@@ -117,6 +117,15 @@ using DelayDifferentialAnalysis
             @test selected_all.best_model == [3]
             @test selected_all.best_delays == [10]
             @test selected_all.best_score == 0.25
+
+            selected_model = structure_selection_select(run; models=[1])
+            @test selected_model.best_model == [1]
+            @test length(selected_model.trials) == 1
+            @test_throws ErrorException structure_selection_select(
+                run;
+                models=[1],
+                MOD_numbers=[1],
+            )
         finally
             rm(out_dir; recursive=true, force=true)
         end
@@ -1017,7 +1026,7 @@ using DelayDifferentialAnalysis
         MOD = make_MOD(1, 2)
         io = IOBuffer()
 
-        print_structure_selection(io, MOD, 2)
+        print_structure_selection(io, MOD)
         text = String(take!(io))
 
         @test occursin("P_DDA", text)
@@ -1031,6 +1040,14 @@ using DelayDifferentialAnalysis
         @test occursin("ẋ = a₁·x₁²", text)
         @test occursin("ẋ = a₁·x₁·x₂", text)
         @test !occursin("\\dot{x}", text)
+        @test_throws ErrorException print_structure_selection(zeros(Int, 1, 4))
+        @test_throws MethodError print_structure_selection(MOD, 2)
+
+        padded_io = IOBuffer()
+        print_structure_selection(padded_io, repeat([1 0 0 0 0], 12, 1))
+        table_lines = filter(line -> occursin('|', line), split(String(take!(padded_io)), '\n'))
+        @test length(table_lines) == 13
+        @test length(unique(findfirst('|', line) for line in table_lines)) == 1
     end
 
     @testset "write_model_LaTeX remains available explicitly" begin
