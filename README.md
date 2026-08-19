@@ -136,7 +136,9 @@ so existing `run_DDA`, `run_st`, `run_ct`, and `run_de` calls are unchanged.
 Structure selection has two recommended steps:
 
 1. `structure_selection_compute` computes and caches DDA outputs.
-2. `structure_selection_select` reads cached outputs and chooses the lowest-error
+2. `structure_selection_read` restores a previous compute run after restarting
+   Julia.
+3. `structure_selection_select` reads cached outputs and chooses the lowest-error
    model/delay combination.
 
 This split is useful on shared machines because expensive binary runs can be
@@ -174,6 +176,7 @@ run = structure_selection_compute(
     WL=3000,
     WS=200,
     prefix="RUN1",
+    num_cores=4,
 )
 ```
 
@@ -195,7 +198,17 @@ RUN1/structure_selection_01_02_10.info
 Output names encode the active `MOD` column indices as two-digit values joined
 by underscores. Existing complete outputs are reused rather than overwritten.
 Candidates are evaluated in randomized order by default; pass `randomize=false`
-for deterministic order.
+for deterministic order. `num_cores` controls how many independent DDA binaries
+run concurrently and defaults to `1`. Values above `Sys.CPU_THREADS` are capped
+at the available logical CPU count.
+
+The compute step writes `RUN1/structure_selection.toml` before starting the DDA
+calls. Restore the same `StructureSelectionRun` in a later Julia session without
+rerunning DDA:
+
+```julia
+run = structure_selection_read(prefix="RUN1")
+```
 
 ### Select From Cached Outputs
 

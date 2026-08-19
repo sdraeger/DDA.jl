@@ -84,6 +84,100 @@ using DelayDifferentialAnalysis
                 "structure_selection_03",
             ]
             @test isfile(joinpath(prefix, "TAU_ALL__1_0"))
+            @test isfile(joinpath(prefix, "structure_selection.toml"))
+
+            restored = structure_selection_read(prefix)
+            @test restored.prefix == run.prefix
+            @test restored.MOD == run.MOD
+            @test restored.DDAorder == run.DDAorder
+            @test restored.nr_delays == run.nr_delays
+            @test restored.delays == run.delays
+            @test restored.channels === run.channels
+            @test restored.model_numbers == run.model_numbers
+            @test restored.derivative_points == run.derivative_points
+            @test restored.tau_file_suffix == run.tau_file_suffix
+            @test restored.trial_prefix == run.trial_prefix
+            @test structure_selection_read(prefix=prefix).MOD == run.MOD
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "structure_selection_read requires compute metadata" begin
+        out_dir = mktempdir()
+        try
+            @test_throws ErrorException structure_selection_read(out_dir)
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "structure_selection_read preserves nondefault run metadata" begin
+        out_dir = mktempdir()
+        try
+            run = StructureSelectionRun(
+                out_dir,
+                make_MOD(1, 2),
+                2,
+                2,
+                [7, 9, 11],
+                [2, 4],
+                [1, 3],
+                5,
+                "_run1",
+                "custom_selection",
+            )
+            DelayDifferentialAnalysis.StructureSelection._write_structure_selection_run(run)
+            restored = structure_selection_read(out_dir)
+
+            for field in fieldnames(StructureSelectionRun)
+                @test getfield(restored, field) == getfield(run, field)
+            end
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "structure_selection_compute caps parallel model execution" begin
+        out_dir = mktempdir()
+        try
+            active = Ref(0)
+            maximum_active = Ref(0)
+            calls = Ref(0)
+            run_once = (; kwargs...) -> begin
+                calls[] += 1
+                active[] += 1
+                maximum_active[] = max(maximum_active[], active[])
+                sleep(0.05)
+                active[] -= 1
+                return nothing
+            end
+            expected_workers = min(Sys.CPU_THREADS, 3)
+
+            DelayDifferentialAnalysis.StructureSelection._structure_selection_compute(
+                run_once;
+                file_path="data.ascii",
+                N_MOD=1,
+                DDAorder=2,
+                delays=10:20,
+                derivative_points=4,
+                prefix=joinpath(out_dir, "RUN1"),
+                MOD_numbers=[1, 2, 3],
+                randomize=false,
+                num_cores=Sys.CPU_THREADS + 10,
+            )
+
+            @test calls[] == 3
+            @test maximum_active[] == expected_workers
+            @test DelayDifferentialAnalysis.StructureSelection._structure_selection_worker_count(
+                typemax(Int),
+                3,
+            ) == expected_workers
+            @test DelayDifferentialAnalysis.StructureSelection._structure_selection_worker_count(1, 3) == 1
+            @test_throws ErrorException DelayDifferentialAnalysis.StructureSelection._structure_selection_worker_count(
+                0,
+                3,
+            )
         finally
             rm(out_dir; recursive=true, force=true)
         end

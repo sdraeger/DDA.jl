@@ -120,7 +120,8 @@ include("StructureSelection.jl")
 using .StructureSelection
 export ChannelStructureSelectionResult, PerChannelStructureSelectionResult
 export StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection
-export StructureSelectionRun, structure_selection_compute, structure_selection_select
+export StructureSelectionRun, structure_selection_compute, structure_selection_read
+export structure_selection_select
 export print_structure_selection, write_model_terminal, write_model_LaTeX
 
 # --- High-level API ---

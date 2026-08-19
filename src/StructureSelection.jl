@@ -4,12 +4,14 @@ module StructureSelection
 using Printf
 using Random
 using Statistics
+using TOML
 using ..ModelEncoding: generate_monomials, model_matrix_to_encoding
 using ..Runner: run_DDA
 
 export ChannelStructureSelectionResult, PerChannelStructureSelectionResult
 export StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection
-export StructureSelectionRun, structure_selection_compute, structure_selection_select
+export StructureSelectionRun, structure_selection_compute, structure_selection_read
+export structure_selection_select
 export print_structure_selection, write_model_terminal, write_model_LaTeX
 
 const _POOL_LOCK_OWNER_FILE = "owner"
@@ -96,14 +98,29 @@ end
 
 """
     structure_selection_compute(; file_path, prefix, delays, derivative_points,
-        MOD=nothing, N_MOD=nothing, DDAorder, MOD_numbers=nothing, channels=nothing, ...)
+        MOD=nothing, N_MOD=nothing, DDAorder, MOD_numbers=nothing,
+        channels=nothing, num_cores=1, ...)
 
 Compute the cached DDA outputs needed for structure selection. This function
-does not select a model.
+does not select a model. Independent model calls run concurrently when
+`num_cores > 1`, capped at `Sys.CPU_THREADS`.
 """
 function structure_selection_compute(; kwargs...)::StructureSelectionRun
     return _structure_selection_compute(run_DDA; kwargs...)
 end
+
+"""
+    structure_selection_read(prefix)
+    structure_selection_read(; prefix)
+
+Read a `StructureSelectionRun` from a result folder created by
+`structure_selection_compute`. No DDA processes are started.
+"""
+function structure_selection_read(prefix::AbstractString)::StructureSelectionRun
+    return _structure_selection_read(prefix)
+end
+
+structure_selection_read(; prefix)::StructureSelectionRun = structure_selection_read(prefix)
 
 """
     structure_selection_select([run]; channels=nothing, channel=nothing,
@@ -130,6 +147,7 @@ include("StructureSelection/Models.jl")
 include("StructureSelection/Artifacts.jl")
 include("StructureSelection/SelectionData.jl")
 include("StructureSelection/Visualization.jl")
+include("StructureSelection/RunMetadata.jl")
 include("StructureSelection/Compute.jl")
 include("StructureSelection/Legacy.jl")
 

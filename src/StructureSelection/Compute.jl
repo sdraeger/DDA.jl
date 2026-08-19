@@ -19,11 +19,13 @@ function _structure_selection_compute(
     tau_file_suffix::AbstractString="",
     randomize::Bool=true,
     rng=Random.GLOBAL_RNG,
+    num_cores::Integer=1,
     _trial_prefix::AbstractString="structure_selection",
     kwargs...,
 )::StructureSelectionRun
     haskey(kwargs, :tau_file_prefix) && error("Pass `prefix`, not `tau_file_prefix`")
     prefix === nothing && error("`prefix` is required for `structure_selection_compute`")
+    num_cores >= 1 || error("`num_cores` must be at least 1")
     delay_spec = _resolve_structure_delays(delays, candidate_delays, nothing)
     delay_spec.mode == :pool || error("`structure_selection_compute` expects `delays` as a flat delay pool")
     derivative_points !== nothing || error("`derivative_points` is required")
@@ -35,8 +37,21 @@ function _structure_selection_compute(
     P_DDA = _p_dda(model_order; nr_delays=nr_delays)
     tau_prefix = joinpath(output_root, "TAU_ALL__")
     channel_list = channels === nothing ? nothing : Int[channels...]
+    run = StructureSelectionRun(
+        output_root,
+        MOD_matrix,
+        model_order,
+        Int(nr_delays),
+        Int[delay_spec.values...],
+        channel_list,
+        model_numbers,
+        Int(derivative_points),
+        String(tau_file_suffix),
+        String(_trial_prefix),
+    )
+    _write_structure_selection_run(run)
 
-    for model_number in _ordered_candidates(model_numbers, randomize, rng)
+    candidates = map(_ordered_candidates(model_numbers, randomize, rng)) do model_number
         model = _model_from_MOD_row(MOD_matrix, model_number)
         nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
         tau_rows = _tau_rows(delay_spec.values, nr, sym)
@@ -50,43 +65,57 @@ function _structure_selection_compute(
         )
         model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
         out_fn = _trial_out_fn(output_root, model_id, nothing, _trial_prefix)
-        _run_or_reuse_pool_output(out_fn, length(tau_rows)) do
-            _write_tau_file(tau_path, tau_rows)
+        return (;
+            model=executable_model,
+            nr,
+            tau_rows,
+            tau_path,
+            out_fn,
+        )
+    end
+
+    for candidate in candidates
+        _write_tau_file(candidate.tau_path, candidate.tau_rows)
+    end
+
+    run_candidate = function(candidate)
+        _run_or_reuse_pool_output(candidate.out_fn, length(candidate.tau_rows)) do
             run_once(;
                 file_path=file_path,
                 channels=channel_list,
                 flavors=["ST"],
                 binary_path=binary_path,
-                model=executable_model,
-                delays=first(tau_rows),
+                model=candidate.model,
+                delays=first(candidate.tau_rows),
                 derivative_points=Int(derivative_points),
                 order=model_order,
-                nr_tau=nr,
-                tau_file=tau_path,
+                nr_tau=candidate.nr,
+                tau_file=candidate.tau_path,
                 WL=WL,
                 WS=WS,
                 input_format=input_format,
-                out_fn=out_fn,
+                out_fn=candidate.out_fn,
                 load_results=false,
                 kwargs...,
             )
         end
     end
 
-    run = StructureSelectionRun(
-        output_root,
-        MOD_matrix,
-        model_order,
-        Int(nr_delays),
-        Int[delay_spec.values...],
-        channel_list,
-        model_numbers,
-        Int(derivative_points),
-        String(tau_file_suffix),
-        String(_trial_prefix),
-    )
+    worker_count = _structure_selection_worker_count(num_cores, length(candidates))
+    if worker_count == 1
+        foreach(run_candidate, candidates)
+    else
+        asyncmap(run_candidate, candidates; ntasks=worker_count)
+    end
+
     _LAST_STRUCTURE_SELECTION_RUN[] = run
     return run
+end
+
+function _structure_selection_worker_count(num_cores::Integer, candidate_count::Integer)::Int
+    num_cores >= 1 || error("`num_cores` must be at least 1")
+    candidate_count >= 1 || error("Structure selection requires at least one model")
+    return min(Int(num_cores), Sys.CPU_THREADS, Int(candidate_count))
 end
 
 function _structure_selection_select(
