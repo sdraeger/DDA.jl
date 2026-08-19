@@ -144,5 +144,6 @@ export permutation_test, compute_effect_size, compare_windows
 include("Plotting.jl")
 using .Plotting
 export plot_coefficients, plot_heatmap, plot_errors, plot_ergodicity, plot_model
+export plot_structure_selection
 
 end # module DelayDifferentialAnalysis

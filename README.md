@@ -230,6 +230,27 @@ The old one-shot `structure_selection(...)` wrapper is still available for
 small interactive runs. New long-running workflows should prefer
 `structure_selection_compute` plus `structure_selection_select`.
 
+### Visualize Cached Selection Results
+
+`plot_structure_selection` uses Plots.jl and reads the same cached ST outputs
+without rerunning the DDA binary. The `:all` view shows the winning model number
+for every valid two-delay pair after aggregating over all windows:
+
+```julia
+plot_structure_selection(run; mode=:all, channels=[1], models=[1, 3, 7])
+```
+
+The `:time` view selects the best model and delay pair independently at each
+window and shows `tau1` and `tau2` against the raw DDA window coordinate `T`:
+
+```julia
+plot_structure_selection(run; mode=:time, channels=[1])
+```
+
+Both views compare only models with two active delays. Symmetric models are
+mirrored across the delay-pair diagonal; asymmetric models retain their delay
+ordering. Colors identify row numbers in `run.MOD`.
+
 ## Parameter Notes
 
 - Julia channel indices are 1-based.

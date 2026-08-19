@@ -129,6 +129,7 @@ end
 include("StructureSelection/Models.jl")
 include("StructureSelection/Artifacts.jl")
 include("StructureSelection/SelectionData.jl")
+include("StructureSelection/Visualization.jl")
 include("StructureSelection/Compute.jl")
 include("StructureSelection/Legacy.jl")
 

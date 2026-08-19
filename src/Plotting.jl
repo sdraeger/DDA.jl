@@ -3,8 +3,10 @@ module Plotting
 
 using ..Results
 using ..ModelEncoding
+using ..StructureSelection
 
 export plot_coefficients, plot_heatmap, plot_errors, plot_ergodicity, plot_model
+export plot_structure_selection
 
 # =============================================================================
 # Lazy Plots.jl loading
@@ -293,6 +295,195 @@ function _plot_model_impl(
 
     Base.invokelatest(P.ylabel!, p, "Degree")
     return p
+end
+
+# =============================================================================
+# plot_structure_selection
+# =============================================================================
+
+"""
+    plot_structure_selection(run; mode=:all, channels=nothing, models=nothing,
+                             metric=:mean_error, figsize=(800,600))
+
+Plot cached two-delay structure-selection results. `mode=:all` shows the
+winning model at each `(tau1, tau2)` pair after aggregating over all windows.
+`mode=:time` shows the winning delay pair at each raw DDA window coordinate.
+Model colors are the corresponding row numbers in `run.MOD`.
+"""
+function plot_structure_selection(
+    run::StructureSelectionRun;
+    mode::Symbol=:all,
+    channels=nothing,
+    models=nothing,
+    metric::Symbol=:mean_error,
+    figsize::Tuple{Int,Int}=(800, 600),
+)
+    _ensure_plots()
+    data = StructureSelection._structure_selection_plot_data(
+        run;
+        mode=mode,
+        channels=channels,
+        models=models,
+        metric=metric,
+    )
+    return Base.invokelatest(_plot_structure_selection_impl, data; figsize=figsize)
+end
+
+function _plot_structure_selection_impl(data; figsize)
+    P = @eval Plots
+    models = sort(unique(filter(>(0), vec(data.model_numbers))))
+    model_indices = Dict(model => idx for (idx, model) in enumerate(models))
+    palette_colors = [
+        "#35618F",
+        "#C65D3B",
+        "#4F8A70",
+        "#9B6AA6",
+        "#C08A35",
+        "#4F8C99",
+        "#A5545D",
+        "#6F7782",
+    ]
+    palette = length(models) <= length(palette_colors) ?
+              Base.invokelatest(P.palette, palette_colors[1:length(models)]) :
+              Base.invokelatest(P.palette, :tab20, length(models))
+    colors = Base.invokelatest(P.cgrad, palette; categorical=true)
+    clims = (0.5, length(models) + 0.5)
+    style = (
+        background_color=:white,
+        foreground_color_axis="#333333",
+        foreground_color_border="#333333",
+        foreground_color_text="#262626",
+        fontfamily="sans-serif",
+        framestyle=:box,
+        guidefontsize=11,
+        tickfontsize=9,
+        legendfontsize=9,
+        legend_background_color=:transparent,
+        legend_foreground_color=:transparent,
+        tick_direction=:out,
+        dpi=300,
+    )
+
+    if data.mode == :all
+        values = fill(NaN, size(data.model_numbers))
+        for idx in eachindex(values)
+            model = data.model_numbers[idx]
+            model > 0 && (values[idx] = model_indices[model])
+        end
+        plot = Base.invokelatest(
+            P.heatmap,
+            data.tau1,
+            data.tau2,
+            values;
+            style...,
+            xlabel="Delay τ₁",
+            ylabel="Delay τ₂",
+            xticks=_structure_selection_ticks(data.tau1),
+            yticks=_structure_selection_ticks(data.tau2),
+            color=colors,
+            clims=clims,
+            colorbar=false,
+            legend=:outerright,
+            aspect_ratio=:equal,
+            grid=false,
+            size=figsize,
+        )
+        for model in models
+            Base.invokelatest(
+                P.scatter!,
+                plot,
+                [NaN],
+                [NaN];
+                color=palette[model_indices[model]],
+                markershape=:rect,
+                markersize=6,
+                markerstrokewidth=0,
+                label="Model $model",
+            )
+        end
+        return plot
+    end
+
+    delays = sort(unique(vcat(data.tau1, data.tau2)))
+    padding = max(1.0, 0.05 * (maximum(delays) - minimum(delays)))
+    ylims = (minimum(delays) - padding, maximum(delays) + padding)
+    p1 = Base.invokelatest(
+        P.plot;
+        style...,
+        ylabel="Delay τ₁",
+        xticks=false,
+        yticks=_structure_selection_ticks(delays),
+        ylims=ylims,
+        grid=:y,
+        gridalpha=0.16,
+        gridlinewidth=0.6,
+        legend=false,
+    )
+    p2 = Base.invokelatest(
+        P.plot;
+        style...,
+        xlabel="Window coordinate, T",
+        ylabel="Delay τ₂",
+        yticks=_structure_selection_ticks(delays),
+        ylims=ylims,
+        grid=:y,
+        gridalpha=0.16,
+        gridlinewidth=0.6,
+        legend=:outerright,
+    )
+    Base.invokelatest(
+        P.plot!,
+        p1,
+        data.T,
+        data.tau1;
+        color="#AEB4BA",
+        linewidth=1.0,
+        seriestype=:steppost,
+        label="",
+    )
+    Base.invokelatest(
+        P.plot!,
+        p2,
+        data.T,
+        data.tau2;
+        color="#AEB4BA",
+        linewidth=1.0,
+        seriestype=:steppost,
+        label="",
+    )
+    for model in models
+        indices = findall(==(model), data.model_numbers)
+        color = palette[model_indices[model]]
+        Base.invokelatest(
+            P.scatter!,
+            p1,
+            data.T[indices],
+            data.tau1[indices];
+            color=color,
+            markersize=4,
+            markerstrokecolor="#333333",
+            markerstrokewidth=0.5,
+            label="",
+        )
+        Base.invokelatest(
+            P.scatter!,
+            p2,
+            data.T[indices],
+            data.tau2[indices];
+            color=color,
+            markersize=4,
+            markerstrokecolor="#333333",
+            markerstrokewidth=0.5,
+            label="Model $model",
+        )
+    end
+    return Base.invokelatest(P.plot, p1, p2; layout=(2, 1), link=:x, size=figsize)
+end
+
+function _structure_selection_ticks(values; maximum_ticks::Int=8)
+    length(values) <= maximum_ticks && return values
+    indices = unique(round.(Int, range(1, length(values), length=maximum_ticks)))
+    return values[indices]
 end
 
 end # module Plotting

@@ -25,14 +25,26 @@ using DelayDifferentialAnalysis
         )
     end
 
-    function write_structure_st(path, errors::AbstractMatrix{<:Real}, n_terms::Integer)
-        n_channels, n_tau = size(errors)
-        fields = zeros(Float64, Int(n_terms) + 1, n_channels, n_tau)
-        fields[end, :, :] .= Float64.(errors)
+    function write_structure_st_series(
+        path,
+        errors::AbstractArray{<:Real,3},
+        n_terms::Integer;
+        T=collect(0:(size(errors, 3) - 1)),
+    )
+        n_channels, n_tau, _ = size(errors)
         open(path, "w") do io
-            println(io, "0 1 ", join(vec(fields), " "))
+            for window_idx in axes(errors, 3)
+                fields = zeros(Float64, Int(n_terms) + 1, n_channels, n_tau)
+                fields[end, :, :] .= Float64.(errors[:, :, window_idx])
+                println(io, "$(T[window_idx]) $(T[window_idx] + 1) ", join(vec(fields), " "))
+            end
         end
         return nothing
+    end
+
+    function write_structure_st(path, errors::AbstractMatrix{<:Real}, n_terms::Integer)
+        values = reshape(Float64.(errors), size(errors, 1), size(errors, 2), 1)
+        return write_structure_st_series(path, values, n_terms)
     end
 
     @testset "structure_selection_compute computes outputs without selecting" begin
@@ -174,6 +186,95 @@ using DelayDifferentialAnalysis
 
             per_channel = structure_selection_select(run; model_scope=:per_channel)
             @test [result.channel for result in per_channel.results] == [10, 20]
+        finally
+            rm(out_dir; recursive=true, force=true)
+        end
+    end
+
+    @testset "structure-selection plot data preserves delay-pair and time winners" begin
+        out_dir = mktempdir()
+        try
+            prefix = joinpath(out_dir, "RUN1")
+            mkpath(prefix)
+            MOD = make_MOD(2, 2)
+            write(joinpath(prefix, "TAU_ALL__2_1"), "10 20\n10 30\n20 30\n")
+            write(
+                joinpath(prefix, "TAU_ALL__2_0"),
+                "10 20\n10 30\n20 10\n20 30\n30 10\n30 20\n",
+            )
+
+            symmetric_errors = Array{Float64}(undef, 1, 3, 2)
+            symmetric_errors[1, :, :] = [0.2 5.0; 5.0 5.0; 5.0 0.3]
+            asymmetric_errors = Array{Float64}(undef, 1, 6, 2)
+            asymmetric_errors[1, :, :] = [
+                2.0 2.0
+                1.5 1.5
+                0.1 4.0
+                2.0 2.0
+                3.0 3.0
+                4.0 4.0
+            ]
+            write_structure_st_series(
+                joinpath(prefix, "structure_selection_01_02_ST"),
+                symmetric_errors,
+                2;
+                T=[100, 200],
+            )
+            write_structure_st_series(
+                joinpath(prefix, "structure_selection_01_04_ST"),
+                asymmetric_errors,
+                2;
+                T=[100, 200],
+            )
+
+            run = StructureSelectionRun(
+                prefix,
+                MOD,
+                2,
+                2,
+                [10, 20, 30],
+                [1],
+                [1, 3],
+                4,
+                "",
+                "structure_selection",
+            )
+            module_ref = DelayDifferentialAnalysis.StructureSelection
+
+            all_data = module_ref._structure_selection_plot_data(run; mode=:all)
+            @test all_data.tau1 == [10, 20, 30]
+            @test all_data.tau2 == [10, 20, 30]
+            @test all(all_data.model_numbers[idx, idx] == 0 for idx in 1:3)
+            @test all_data.model_numbers[2, 3] == 1
+            @test all_data.model_numbers[3, 2] == 3
+
+            time_data = module_ref._structure_selection_plot_data(run; mode=:time)
+            @test time_data.T == [100.0, 200.0]
+            @test time_data.model_numbers == [3, 1]
+            @test time_data.tau1 == [20, 20]
+            @test time_data.tau2 == [10, 30]
+
+            one_model = module_ref._structure_selection_plot_data(
+                run;
+                mode=:time,
+                models=[1],
+            )
+            @test one_model.model_numbers == [1, 1]
+            @test one_model.tau1 == [10, 20]
+            @test one_model.tau2 == [20, 30]
+            @test_throws ErrorException module_ref._structure_selection_plot_data(run; mode=:other)
+            @test_throws ErrorException module_ref._structure_selection_plot_data(
+                run;
+                models=[2],
+            )
+
+            write_structure_st_series(
+                joinpath(prefix, "structure_selection_01_04_ST"),
+                asymmetric_errors,
+                2;
+                T=[100, 201],
+            )
+            @test_throws ErrorException module_ref._structure_selection_plot_data(run; mode=:time)
         finally
             rm(out_dir; recursive=true, force=true)
         end

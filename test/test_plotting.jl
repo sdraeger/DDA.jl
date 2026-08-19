@@ -65,5 +65,32 @@ using DelayDifferentialAnalysis
             p = plot_model([1, 2, 10])
             @test p !== nothing
         end
+
+        @testset "plot_structure_selection" begin
+            all_data = (
+                mode=:all,
+                tau1=[10, 20],
+                tau2=[10, 20],
+                model_numbers=[0 2; 1 0],
+            )
+            all_plot = DelayDifferentialAnalysis.Plotting._plot_structure_selection_impl(
+                all_data;
+                figsize=(400, 400),
+            )
+            @test all_plot !== nothing
+
+            time_data = (
+                mode=:time,
+                T=[0.0, 100.0],
+                tau1=[10, 20],
+                tau2=[20, 10],
+                model_numbers=[1, 2],
+            )
+            time_plot = DelayDifferentialAnalysis.Plotting._plot_structure_selection_impl(
+                time_data;
+                figsize=(400, 400),
+            )
+            @test time_plot !== nothing
+        end
     end
 end

@@ -320,6 +320,23 @@ function _read_structure_selection_errors(
     n_fields::Integer,
     n_tau_rows::Integer,
 )::Union{Matrix{Float64}, Nothing}
+    series = _read_structure_selection_series(st_path, n_fields, n_tau_rows)
+    series === nothing && return nothing
+    n_channels, n_tau, _ = size(series.errors)
+    summary = Matrix{Float64}(undef, n_channels, n_tau)
+    for channel_idx in 1:n_channels
+        for tau_idx in 1:n_tau
+            summary[channel_idx, tau_idx] = median(view(series.errors, channel_idx, tau_idx, :))
+        end
+    end
+    return summary
+end
+
+function _read_structure_selection_series(
+    st_path::AbstractString,
+    n_fields::Integer,
+    n_tau_rows::Integer,
+)
     isfile(st_path) || return nothing
     raw = _read_numeric_matrix(st_path)
     raw === nothing && return nothing
@@ -331,9 +348,17 @@ function _read_structure_selection_errors(
     end
     n_channels = div(size(payload, 2), denominator)
     n_channels > 0 || return nothing
-    summary = Float64[median(view(payload, :, col)) for col in 1:size(payload, 2)]
-    values = reshape(summary, Int(n_fields), n_channels, Int(n_tau_rows))
-    return Matrix(values[end, :, :])
+    values = reshape(
+        permutedims(payload),
+        Int(n_fields),
+        n_channels,
+        Int(n_tau_rows),
+        size(payload, 1),
+    )
+    return (
+        T=Matrix{Float64}(raw[:, 1:2]),
+        errors=copy(values[end, :, :, :]),
+    )
 end
 
 function _read_numeric_matrix(path::AbstractString)::Union{Matrix{Float64}, Nothing}
