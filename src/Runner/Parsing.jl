@@ -26,6 +26,39 @@ function _read_numeric_rows(filepath::String)::Vector{Vector{Float64}}
     return data_rows
 end
 
+"""
+    _read_numeric_matrix_strict(path) -> Union{Matrix{Float64}, Nothing}
+
+Read a whitespace-delimited numeric matrix. Returns `nothing` when the file is
+empty, ragged, or contains any non-numeric line (strict policy used for
+cache-validation reads).
+"""
+function _read_numeric_matrix_strict(path::AbstractString)::Union{Matrix{Float64}, Nothing}
+    rows = Vector{Vector{Float64}}()
+    n_cols = 0
+    try
+        for line in eachline(path)
+            stripped = strip(line)
+            isempty(stripped) && continue
+            values = parse.(Float64, split(stripped))
+            if n_cols == 0
+                n_cols = length(values)
+            elseif length(values) != n_cols
+                return nothing
+            end
+            push!(rows, values)
+        end
+    catch
+        return nothing
+    end
+    isempty(rows) && return nothing
+    matrix = Matrix{Float64}(undef, length(rows), n_cols)
+    for row_idx in eachindex(rows)
+        matrix[row_idx, :] = rows[row_idx]
+    end
+    return matrix
+end
+
 function parse_output_file_structured(filepath::String, stride::Integer)::Vector{StructuredChannelData}
     data_rows = _read_numeric_rows(filepath)
     isempty(data_rows) && return StructuredChannelData[]
@@ -42,23 +75,23 @@ function parse_output_file_structured(filepath::String, stride::Integer)::Vector
     for ch_idx in 1:num_channels
         timepoints = StructuredTimepoint[]
         for row in data_rows
-            win_start = row[1]
-            win_end = row[2]
+            win_start = _integer_output_index(row[1])
+            win_end = _integer_output_index(row[2])
             start_col = 3 + (ch_idx - 1) * stride
             end_col = start_col + stride - 1
             channel_values = row[start_col:end_col]
 
             if length(channel_values) >= 2
                 coeffs = channel_values[1:end-1]
-                err = channel_values[end]
+                value = channel_values[end]
             elseif length(channel_values) == 1
                 coeffs = Float64[]
-                err = channel_values[1]
+                value = channel_values[1]
             else
                 coeffs = Float64[]
-                err = 0.0
+                value = 0.0
             end
-            push!(timepoints, StructuredTimepoint(win_start, win_end, coeffs, err))
+            push!(timepoints, StructuredTimepoint(win_start, win_end, coeffs, value))
         end
         push!(channels, StructuredChannelData(ch_idx, timepoints))
     end
@@ -95,16 +128,28 @@ function _normalized_window_bounds(
 
     spec = _variant_window_spec(request, variant_abbrev)
     spec === nothing && return (Int64[], Int64[])
-    (WL, WS) = spec
-    first_start = request.time_range === nothing ? 0 : Int(floor(request.time_range.start))
+    first_start = request.time_range === nothing ? 0 : request.time_range.start
+    return _fixed_window_bounds(Int(n_windows), spec[1], spec[2], Int(first_start))
+end
+
+"""
+    _fixed_window_bounds(n_windows, WL, WS, first_start=0) -> (starts, ends)
+
+Compute window start/end sample indices for evenly stepping windows.
+"""
+function _fixed_window_bounds(
+    n_windows::Integer,
+    WL::Integer,
+    WS::Integer,
+    first_start::Integer=0,
+)::Tuple{Vector{Int64}, Vector{Int64}}
     window_starts = Vector{Int64}(undef, Int(n_windows))
     window_ends = Vector{Int64}(undef, Int(n_windows))
 
     for window_idx in 1:Int(n_windows)
         window_start = Int64(first_start + (window_idx - 1) * WS)
-        window_end = Int64(window_start + WL)
         window_starts[window_idx] = window_start
-        window_ends[window_idx] = window_end
+        window_ends[window_idx] = Int64(window_start + WL)
     end
 
     return window_starts, window_ends
@@ -114,8 +159,8 @@ function _raw_window_bounds(
     channels::Vector{StructuredChannelData},
 )::Tuple{Vector{Int64}, Vector{Int64}}
     isempty(channels) && return (Int64[], Int64[])
-    starts = Int64[round(Int64, tp.window_start) for tp in channels[1].timepoints]
-    ends = Int64[round(Int64, tp.window_end) for tp in channels[1].timepoints]
+    starts = Int64[tp.window_start for tp in channels[1].timepoints]
+    ends = Int64[tp.window_end for tp in channels[1].timepoints]
     return (starts, ends)
 end
 
@@ -143,8 +188,8 @@ function _extract_raw_T_bounds(
     n_windows = length(channels[1].timepoints)
     T = Matrix{Int64}(undef, n_windows, 2)
     for (window_idx, tp) in enumerate(channels[1].timepoints)
-        T[window_idx, 1] = _integer_output_index(tp.window_start)
-        T[window_idx, 2] = _integer_output_index(tp.window_end)
+        T[window_idx, 1] = tp.window_start
+        T[window_idx, 2] = tp.window_end
     end
     return T
 end
@@ -207,11 +252,20 @@ function _coefficient_arrays(
             for (coefficient_idx, coeff) in enumerate(tp.coefficients)
                 coefficients[entity_idx, window_idx, coefficient_idx] = coeff
             end
-            errors[entity_idx, window_idx] = tp.error
+            errors[entity_idx, window_idx] = tp.value
         end
     end
 
     return coefficients, errors
+end
+
+"""Pair labels for upper-triangular channel combinations: `"a-b"`."""
+function _pair_labels(labels::Vector{String})::Vector{String}
+    pairs = String[]
+    for i in 1:length(labels), j in (i + 1):length(labels)
+        push!(pairs, "$(labels[i])-$(labels[j])")
+    end
+    return pairs
 end
 
 function _channel_labels_for_variant(
@@ -221,11 +275,7 @@ function _channel_labels_for_variant(
     if variant.channel_format == Individual
         return copy(base_labels)
     elseif variant.channel_format == Pairs
-        labels = String[]
-        for i in 1:length(base_labels), j in (i + 1):length(base_labels)
-            push!(labels, "$(base_labels[i])-$(base_labels[j])")
-        end
-        return labels
+        return _pair_labels(base_labels)
     elseif variant.channel_format == DirectedPairs
         labels = String[]
         for i in 1:length(base_labels), j in 1:length(base_labels)

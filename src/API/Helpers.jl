@@ -32,14 +32,6 @@ function _resolve_labels(
     return labels
 end
 
-function _pair_labels(labels::Vector{String})::Vector{String}
-    pairs = String[]
-    for i in 1:length(labels), j in (i + 1):length(labels)
-        push!(pairs, "$(labels[i])-$(labels[j])")
-    end
-    return pairs
-end
-
 function _pair_channel_sets(channels::Vector{Int})::Vector{Vector{Int}}
     pairs = Vector{Vector{Int}}()
     for i in 1:length(channels), j in (i + 1):length(channels)

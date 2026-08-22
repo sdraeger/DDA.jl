@@ -91,7 +91,6 @@ Important keywords:
 function _run_st_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
-    sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
@@ -141,7 +140,6 @@ function _run_st_file(
     return _st_from_raw(
         raw["ST"],
         ctx.labels;
-        sfreq=sfreq,
         delays=delays,
         model=ctx.model_terms,
         WL=WL,
@@ -164,7 +162,6 @@ Run cross-timeseries DDA directly on an EDF or ASCII file using 1-based channel 
 function _run_ct_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
-    sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
@@ -196,7 +193,7 @@ function _run_ct_file(
     )
     length(ctx.selected_channels) >= 2 || error("CT analysis requires at least 2 channels, got $(length(ctx.selected_channels))")
 
-    pair_labels = _pair_labels(ctx.labels)
+    pair_labels = Runner._pair_labels(ctx.labels)
     raw_pairs = StructuredChannelData[]
 
     for pair_channels in _pair_channel_sets(ctx.selected_channels)
@@ -227,7 +224,6 @@ function _run_ct_file(
     return _ct_from_raw(
         raw_pairs,
         pair_labels;
-        sfreq=sfreq,
         delays=delays,
         model=ctx.model_terms,
         WL=ct_wl,
@@ -250,7 +246,6 @@ Run dynamical-ergodicity DDA directly on an EDF or ASCII file using 1-based chan
 function _run_de_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
-    sfreq::Float64=1.0,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
@@ -303,7 +298,6 @@ function _run_de_file(
     haskey(raw, "DE") || error("No DE results found in DDA output")
     return _de_from_raw(
         raw["DE"];
-        sfreq=sfreq,
         delays=delays,
         model=ctx.model_terms,
         WL=ct_wl,

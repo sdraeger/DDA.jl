@@ -4,8 +4,8 @@
 
 """Time range for analysis (in samples)."""
 struct TimeRange
-    start::Float64
-    stop::Float64
+    start::Int64
+    stop::Int64
 end
 
 """Window parameters for DDA analysis."""
@@ -52,8 +52,6 @@ DDA analysis request parameters.
 - `model_params`: Model parameters (`derivative_points`, `order`, `nr_tau`)
 - `model_terms`: Model term indices passed to `-MODEL`
 - `time_range`: Optional time range in samples
-- `ct_channel_pairs`: Channel pairs for CT (1-based)
-- `cd_channel_pairs`: Directed pairs for CD (1-based)
 - `select`: Optional explicit SELECT mask overriding `variants`
 - `input_format`: Input format used for the binary file-type flag
 - `sampling_rate`: Optional `-SR` value. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`
@@ -73,8 +71,6 @@ struct DDARequest
     model_params::ModelParameters
     model_terms::Vector{Int}
     time_range::Union{TimeRange, Nothing}
-    ct_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
-    cd_channel_pairs::Union{Vector{Tuple{Int, Int}}, Nothing}
     select::Union{Vector{Int}, Nothing}
     input_format::FileType
     sampling_rate::SamplingRate

@@ -8,22 +8,6 @@ function _normalize_channels(
     return normalized
 end
 
-function _normalize_pairs(
-    pairs::Union{AbstractVector{<:Tuple}, Nothing},
-)::Union{Vector{Tuple{Int, Int}}, Nothing}
-    pairs === nothing && return nothing
-    normalized = Tuple{Int, Int}[]
-    for pair in pairs
-        length(pair) == 2 || error("Channel pairs must contain exactly two entries")
-        first_idx = Int(pair[1])
-        second_idx = Int(pair[2])
-        first_idx >= 1 || error("Channel pairs must use 1-based positive indices")
-        second_idx >= 1 || error("Channel pairs must use 1-based positive indices")
-        push!(normalized, (first_idx, second_idx))
-    end
-    return normalized
-end
-
 function _append_passthrough_value!(args::Vector{String}, value)
     if value isa AbstractVector
         for item in value
@@ -126,10 +110,14 @@ function _resolve_derivative_points(
     derivative_points::Union{Int, Nothing},
     dm::Union{Int, Nothing},
 )::Int
-    if derivative_points !== nothing && dm !== nothing && derivative_points != dm
-        error("`derivative_points` and `dm` disagree")
-    end
-    value = something(derivative_points, dm, DDADefaults.DERIVATIVE_POINTS)
+    dm === nothing || Base.depwarn(
+        "`dm` is deprecated, use `derivative_points`.",
+        :_resolve_derivative_points,
+    )
+    resolved = _resolve_optional_int_alias(
+        "derivative_points", derivative_points, "dm", dm,
+    )
+    value = something(resolved, DDADefaults.DERIVATIVE_POINTS)
     value > 0 || error("Derivative points must be positive")
     return value
 end
@@ -259,10 +247,8 @@ Create a DDA analysis request.
 - `dm`: Legacy alias for `derivative_points`
 - `order::Int=$(DDADefaults.POLYNOMIAL_ORDER)`: Polynomial order. Required when passing a custom `model`
 - `nr_tau::Int=$(DDADefaults.NUM_TAU)`: Number of tau values
-- `time_range`: Optional `(start, stop)` in samples
-- `ct_pairs`: CT channel pairs (1-based)
-- `cd_pairs`: CD directed pairs (1-based)
-- `select`: Optional explicit `-SELECT` mask. When passed, it overrides `variants`
+ - `time_range`: Optional `(start, stop)` in samples
+ - `select`: Optional explicit `-SELECT` mask. When passed, it overrides `variants`
 - `input_format`: Optional input format override. Accepts `:ascii`, `:edf`, `"ascii"`, or `"edf"`.
 - `sampling_rate`: Optional `-SR` value. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`. Defaults to `$(DDADefaults.SAMPLING_RATE)`
 - `TM`: Optional value used only to compute the derived `t` axis. Defaults to `max(delays)`
@@ -288,8 +274,6 @@ function DDARequest(
     order::Union{Int, Nothing}=nothing,
     nr_tau::Int=DDADefaults.NUM_TAU,
     time_range::Union{Tuple{Real, Real}, Nothing}=nothing,
-    ct_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
-    cd_pairs::Union{AbstractVector{<:Tuple}, Nothing}=nothing,
     select::Union{AbstractVector{<:Integer}, Nothing}=nothing,
     input_format=nothing,
     sampling_rate::Union{
@@ -308,6 +292,18 @@ function DDARequest(
     no_norm::Bool=false,
     WN_list=nothing,
 )
+    model_encoding === nothing || Base.depwarn(
+        "`model_encoding` is deprecated, use `model`.",
+        :DDARequest,
+    )
+    ct_window_length === nothing || Base.depwarn(
+        "`ct_window_length` is deprecated, use `WL_CT`.",
+        :DDARequest,
+    )
+    ct_window_step === nothing || Base.depwarn(
+        "`ct_window_step` is deprecated, use `WS_CT`.",
+        :DDARequest,
+    )
     normalized_channels = _normalize_channels(channels)
     normalized_select = _normalize_select(select)
     normalized_variants = _resolve_variants(variants, normalized_select)
@@ -328,7 +324,7 @@ function DDARequest(
         nr_tau,
     )
     terms = _resolve_model_terms(model, model_encoding, nr_tau, mp.order)
-    tr = time_range === nothing ? nothing : TimeRange(Float64(time_range[1]), Float64(time_range[2]))
+    tr = time_range === nothing ? nothing : TimeRange(floor(Int64, time_range[1]), floor(Int64, time_range[2]))
     normalized_out_fn = out_fn === nothing ? nothing : expanduser(String(out_fn))
     passthrough_args = _build_passthrough_args(;
         tau_file=tau_file,
@@ -346,8 +342,6 @@ function DDARequest(
         mp,
         terms,
         tr,
-        _normalize_pairs(ct_pairs),
-        _normalize_pairs(cd_pairs),
         normalized_select,
         _normalize_input_format(file_path, input_format),
         _normalize_sampling_rate(sampling_rate),

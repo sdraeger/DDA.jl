@@ -2,12 +2,16 @@
 # STRUCTURED OUTPUT TYPES
 # =============================================================================
 
-"""A single timepoint's parsed data for one channel."""
+"""A single timepoint's parsed data for one channel.
+
+For stride-1 flavors (DE/SY) the single output value is stored in `value`
+(it is an ergodicity/synchronization measure, not an error).
+"""
 struct StructuredTimepoint
-    window_start::Float64
-    window_end::Float64
+    window_start::Int64
+    window_end::Int64
     coefficients::Vector{Float64}
-    error::Float64
+    value::Float64
 end
 
 """All timepoints for a single channel/pair."""
@@ -23,7 +27,8 @@ end
 """
 Result data for a single variant.
 
-`T` contains the first two integer columns emitted by the binary. `A` contains every
+`T` contains the first two integer columns emitted by the binary (this differs
+from `STResult.T`, which holds only the first column). `A` contains every
 remaining column emitted by the binary, preserving output-file order.
 """
 struct VariantResultData
@@ -42,10 +47,10 @@ end
 """
 DDA analysis result.
 
-Returned flavors are exposed as dynamic properties, for example `result.ST`
-and `result.CT`, with each flavor property returning that flavor's `A` matrix
-directly. Top-level `T`, `t`, and `A` mirror the primary variant for backward
-compatibility.
+Flavors are accessed via [`flavor_matrix`](@ref) or indexing
+(`result["ST"]`, `result["CT"]`, ...), each returning that flavor's raw output
+matrix. Dynamic `result.ST`-style property access still works but is deprecated.
+Top-level `T`, `t`, and `A` mirror the primary variant for backward compatibility.
 """
 struct DDAResult
     id::String
@@ -57,7 +62,7 @@ struct DDAResult
     variant_results::Vector{VariantResultData}
     window_params::WindowParameters
     delay_params::DelayParameters
-    created_at::String
+    created_at::Dates.DateTime
 end
 
 function DDAResult(
@@ -69,7 +74,7 @@ function DDAResult(
     variant_results::Vector{VariantResultData},
     window_params::WindowParameters,
     delay_params::DelayParameters,
-    created_at::String,
+    created_at::Dates.DateTime,
 )
     t = isempty(variant_results) ? Float64[] : first(variant_results).t
     return DDAResult(
@@ -99,11 +104,31 @@ function Base.getproperty(result::DDAResult, name::Symbol)
     name in fieldnames(typeof(result)) && return getfield(result, name)
     if name in DDA_RESULT_FLAVOR_PROPERTIES
         variant = _variant_result_property(result, name)
-        variant !== nothing && return getfield(variant, :A)
+        if variant !== nothing
+            Base.depwarn(
+                "`result.$name` is deprecated; use `flavor_matrix(result, \"$name\")`.",
+                :getproperty,
+            )
+            return getfield(variant, :A)
+        end
         error("DDAResult does not contain flavor `$name`")
     end
     return getfield(result, name)
 end
+
+"""
+    flavor_matrix(result::DDAResult, flavor) -> Matrix{Float64}
+
+Return the raw output matrix of a flavor (`"ST"`, `"CT"`, `"CD"`, `"DE"`, `"SY"`).
+This replaces the deprecated dynamic `result.ST`-style property access.
+"""
+function flavor_matrix(result::DDAResult, flavor::AbstractString)::Matrix{Float64}
+    variant = _variant_result_property(result, Symbol(flavor))
+    variant === nothing && error("DDAResult does not contain flavor `$flavor`")
+    return getfield(variant, :A)
+end
+
+Base.getindex(result::DDAResult, flavor::AbstractString) = flavor_matrix(result, flavor)
 
 function Base.propertynames(result::DDAResult, private::Bool=false)
     base_names = collect(fieldnames(typeof(result)))
