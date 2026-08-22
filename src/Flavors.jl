@@ -92,7 +92,14 @@ Same as `find_binary()` but throws an error if not found.
 function require_binary(
     explicit_path::Union{AbstractString, Nothing}=nothing;
 )::String
-    path = find_binary(explicit_path)
+    if explicit_path !== nothing
+        p = expanduser(explicit_path)
+        isfile(p) || error(
+            "DDA binary not found at explicit path '$p'",
+        )
+        return p
+    end
+    path = find_binary()
     if path === nothing
         error(
             "DDA binary '$(BINARY_NAME)' not found. " *

@@ -65,8 +65,10 @@ function parse_output_file_structured(filepath::String, stride::Integer)::Vector
 
     num_data_cols = length(data_rows[1]) - 2
     if num_data_cols <= 0 || num_data_cols % stride != 0
-        @warn "Invalid data format" num_data_cols stride
-        return StructuredChannelData[]
+        error(
+            "Malformed DDA output '$filepath': $num_data_cols data columns " *
+            "cannot be split into groups of stride=$stride",
+        )
     end
 
     num_channels = div(num_data_cols, stride)

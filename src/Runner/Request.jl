@@ -238,13 +238,13 @@ Create a DDA analysis request.
   the binary use its own channel behavior.
 - `WL`: Optional analysis window length passed as `-WL`
 - `WS`: Optional window step size passed as `-WS`
-- `ct_window_length`: CT-specific window length passed as `-WL_CT` when set
-- `ct_window_step`: CT-specific window step passed as `-WS_CT` when set
+- `ct_window_length`: (deprecated, use `WL_CT`) CT-specific window length passed as `-WL_CT` when set
+- `ct_window_step`: (deprecated, use `WS_CT`) CT-specific window step passed as `-WS_CT` when set
 - `delays`: Delay (tau) values, default `$(DEFAULT_DELAYS)`
 - `model`: Optional custom model. A vector is passed as `-MODEL` indices; a matrix is converted row-wise from monomial encodings to indices.
-- `model_encoding`: Backward-compatible alias for `model`
+- `model_encoding`: (deprecated, use `model`) Backward-compatible alias for `model`
 - `derivative_points::Int=$(DDADefaults.DERIVATIVE_POINTS)`: Value passed to binary `-dm`
-- `dm`: Legacy alias for `derivative_points`
+- `dm`: (deprecated, use `derivative_points`) Legacy alias for `derivative_points`
 - `order::Int=$(DDADefaults.POLYNOMIAL_ORDER)`: Polynomial order. Required when passing a custom `model`
 - `nr_tau::Int=$(DDADefaults.NUM_TAU)`: Number of tau values
  - `time_range`: Optional `(start, stop)` in samples

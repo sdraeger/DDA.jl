@@ -86,7 +86,7 @@ Run single-timeseries DDA directly on an EDF or ASCII file using 1-based channel
 Important keywords:
 - `binary_path`: resolve the DDA binary without relying on environment variables
 - `model`: optional custom model passed to `-MODEL` as indices, or as matrix rows mapped to indices
-- `derivative_points`: preferred name for binary `-dm`
+- `derivative_points`: preferred name for binary `-dm` (the `dm` alias is deprecated)
 - Passing a custom `model` also requires explicit `derivative_points` and `order`
 - `TM`: optional offset used only to compute `result.t`; defaults to `max(delays)`
 - `out_fn`: optional `-OUT_FN` base; defaults to a temporary path for the call

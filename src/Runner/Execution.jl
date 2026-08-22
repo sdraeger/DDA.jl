@@ -23,11 +23,7 @@ end
 # =============================================================================
 
 function _run_command(cmd::Cmd)
-    try
-        run(cmd)
-    catch e
-        error("DDA execution failed: $e")
-    end
+    run(cmd)
     return nothing
 end
 

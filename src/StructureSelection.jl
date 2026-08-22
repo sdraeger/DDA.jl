@@ -75,8 +75,8 @@ candidate with the smallest ST error score. Candidate models can be supplied
 directly, as a `MOD` matrix from `make_MOD`, or by passing `N_MOD` plus
 `DDAorder`. Pass `delays` as a flat delay pool, such as `(derivative_points + 1):TM`,
 to generate Claudia-style `TAU_ALL__...` files, or as nested vectors for
-explicit delay candidates.
-Pass `prefix` to choose the output folder used for generated tau files and
+explicit delay candidates. `candidate_delays` is a deprecated alias for
+`delays`. Pass `prefix` to choose the output folder used for generated tau files and
 structure-selection outputs, for example `/scratch/run42`.
 Pool-mode candidates are evaluated in randomized order by default so concurrent
 structure-selection runs are less likely to start with the same model.
