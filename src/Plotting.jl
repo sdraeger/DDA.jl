@@ -1,32 +1,17 @@
 """Plotting functions for DDA results (lazy Plots.jl loading)."""
 module Plotting
 
-using ..Results
-using ..ModelEncoding
+using ..Results: STResult, CTResult, DEResult, n_windows
+using ..ModelEncoding: generate_monomials, monomial_to_text
 using ..StructureSelection
-
-export plot_coefficients, plot_heatmap, plot_errors, plot_ergodicity, plot_model
-export plot_structure_selection
+using ..StructureSelection: StructureSelectionRun
+using ..OptionalDeps
 
 # =============================================================================
 # Lazy Plots.jl loading
 # =============================================================================
 
-const _plots_loaded = Ref(false)
-
-function _ensure_plots()
-    if !_plots_loaded[]
-        try
-            @eval import Plots
-            _plots_loaded[] = true
-        catch
-            error(
-                "Plots.jl is required for plotting functions. " *
-                "Install with: using Pkg; Pkg.add(\"Plots\")"
-            )
-        end
-    end
-end
+_ensure_plots()::Module = OptionalDeps.require(:Plots)
 
 _entity_labels(result::STResult) = result.channel_labels
 _entity_labels(result::CTResult) = result.pair_labels
@@ -78,7 +63,7 @@ function _plot_coefficients_impl(
     result::Union{STResult,CTResult};
     coeff_indices, channels, use_time, sfreq, figsize,
 )
-    P = @eval Plots
+    P = _ensure_plots()
     coeffs = result.coefficients
     nc = size(coeffs, 1)
     nk = size(coeffs, 3)
@@ -134,7 +119,7 @@ function _plot_errors_impl(
     result::Union{STResult,CTResult};
     channels, use_time, sfreq, figsize,
 )
-    P = @eval Plots
+    P = _ensure_plots()
     nc = size(result.errors, 1)
     ch_idx = something(channels, collect(1:nc))
     labels = _entity_labels(result)
@@ -180,7 +165,7 @@ function _plot_heatmap_impl(
     result::Union{STResult,CTResult};
     coeff_index, use_time, sfreq, cmap, vmin, vmax, figsize,
 )
-    P = @eval Plots
+    P = _ensure_plots()
     data_2d = result.coefficients[:, :, coeff_index]
     labels = _entity_labels(result)
     x, xlabel = _plot_x_axis(result; use_time=use_time, sfreq=sfreq)
@@ -221,7 +206,7 @@ function _plot_ergodicity_impl(
     result::DEResult;
     use_time, sfreq, figsize,
 )
-    P = @eval Plots
+    P = _ensure_plots()
     x, xlabel = _plot_x_axis(result; use_time=use_time, sfreq=sfreq)
 
     p = Base.invokelatest(P.plot, x, result.ergodicity;
@@ -256,7 +241,7 @@ function _plot_model_impl(
     model_encoding::Vector{Int};
     num_delays, polynomial_order, figsize,
 )
-    P = @eval Plots
+    P = _ensure_plots()
     monomials = generate_monomials(num_delays, polynomial_order)
     selected = Set(model_encoding)
 
@@ -330,7 +315,7 @@ function plot_structure_selection(
 end
 
 function _plot_structure_selection_impl(data; figsize)
-    P = @eval Plots
+    P = _ensure_plots()
     models = sort(unique(filter(>(0), vec(data.model_numbers))))
     model_indices = Dict(model => idx for (idx, model) in enumerate(models))
     palette_colors = [

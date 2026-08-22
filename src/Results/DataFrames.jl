@@ -1,20 +1,8 @@
 # DataFrame conversion with a lazy DataFrames.jl import.
 
-const _dataframes = Ref{Union{Module,Nothing}}(nothing)
+import ..OptionalDeps
 
-function _dataframes_module()
-    if isnothing(_dataframes[])
-        try
-            _dataframes[] = Base.require(Main, :DataFrames)
-        catch
-            error(
-                "DataFrames.jl is required for to_dataframe(). " *
-                "Install with: using Pkg; Pkg.add(\"DataFrames\")"
-            )
-        end
-    end
-    return _dataframes[]::Module
-end
+_dataframes_module()::Module = OptionalDeps.require(:DataFrames)
 
 """
     to_dataframe(r::STResult)

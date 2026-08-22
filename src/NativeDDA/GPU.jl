@@ -1,19 +1,6 @@
-const _cuda_module_ref = Ref{Union{Module,Nothing}}(nothing)
 const _CUDA_BATCH_SIZE = 512
 
-function _cuda_module()::Module
-    if _cuda_module_ref[] === nothing
-        _cuda_module_ref[] = try
-            Base.require(Main, :CUDA)
-        catch
-            error(
-                "CUDA.jl is required for device=\"cuda\". " *
-                "Install it with: using Pkg; Pkg.add(\"CUDA\")",
-            )
-        end
-    end
-    return _cuda_module_ref[]::Module
-end
+_cuda_module()::Module = OptionalDeps.require(:CUDA)
 
 function _parse_device(device::AbstractString)::Tuple{Symbol,Int}
     token = lowercase(strip(device))
