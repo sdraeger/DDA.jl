@@ -58,9 +58,9 @@ const NATIVE_EXPECTED = Dict(
     @test result.window_markers == [40.0, 56.0, 72.0, 88.0]
     @test [flavor.id for flavor in result.flavors] == ["ST", "CT", "CD", "DE", "SY"]
     @test result["ST"].row_labels == ["Ch 1", "Ch 2", "Ch 3"]
-    @test result["CT"].row_labels == ["Ch 1&Ch 2", "Ch 2&Ch 3"]
+    @test result["CT"].row_labels == ["Ch 1-Ch 2", "Ch 2-Ch 3"]
     @test result["CD"].row_labels == ["Ch 1 <- Ch 2", "Ch 2 <- Ch 1", "Ch 3 <- Ch 2"]
-    @test result["DE"].row_labels == ["Ch 1&Ch 2", "Ch 2&Ch 3"]
+    @test result["DE"].row_labels == ["Ch 1-Ch 2", "Ch 2-Ch 3"]
     @test result["SY"].row_labels == ["Ch 1 <-> Ch 2"]
     for (flavor, expected) in NATIVE_EXPECTED
         @test result[flavor].matrix ≈ expected rtol=1e-9 atol=1e-9

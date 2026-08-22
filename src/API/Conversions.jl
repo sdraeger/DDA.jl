@@ -27,7 +27,6 @@ function _resolve_model_configuration(
 end
 
 function _make_params(;
-    sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
     WL::Union{Int, Nothing},
@@ -42,7 +41,6 @@ function _make_params(;
     extra::Dict{String, Any}=Dict{String, Any}(),
 )::Dict{String, Any}
     params = Dict{String, Any}(
-        "sfreq" => sfreq,
         "delays" => Int[delays...],
         "model" => Int[model...],
         "WL" => WL,
@@ -68,25 +66,9 @@ function _window_bounds(
     start_offset::Int=0,
 )::Tuple{Vector{Int64}, Vector{Int64}}
     if WL === nothing || WS === nothing
-        if isempty(channels)
-            return (Int64[], Int64[])
-        end
-        starts = Int64[round(Int64, tp.window_start) for tp in channels[1].timepoints]
-        ends = Int64[round(Int64, tp.window_end) for tp in channels[1].timepoints]
-        return (starts, ends)
+        return Runner._raw_window_bounds(channels)
     end
-
-    window_starts = Vector{Int64}(undef, n_windows)
-    window_ends = Vector{Int64}(undef, n_windows)
-
-    for window_idx in 1:n_windows
-        window_start = Int64(start_offset + (window_idx - 1) * WS)
-        window_end = Int64(window_start + WL)
-        window_starts[window_idx] = window_start
-        window_ends[window_idx] = window_end
-    end
-
-    return window_starts, window_ends
+    return Runner._fixed_window_bounds(n_windows, WL, WS, start_offset)
 end
 
 function _time_axes(
@@ -114,7 +96,6 @@ end
 function _st_from_raw(
     channels::Vector{StructuredChannelData},
     labels::Vector{String};
-    sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
     WL::Union{Int, Nothing},
@@ -138,7 +119,6 @@ function _st_from_raw(
     )
 
     params = _make_params(;
-        sfreq=sfreq,
         delays=delays,
         model=model,
         WL=WL,
@@ -157,7 +137,6 @@ end
 function _ct_from_raw(
     pairs::Vector{StructuredChannelData},
     pair_labels::Vector{String};
-    sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
     WL::Union{Int, Nothing},
@@ -181,7 +160,6 @@ function _ct_from_raw(
     )
 
     params = _make_params(;
-        sfreq=sfreq,
         delays=delays,
         model=model,
         WL=WL,
@@ -199,7 +177,6 @@ end
 
 function _de_from_raw(
     channels::Vector{StructuredChannelData};
-    sfreq::Float64,
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
     WL::Union{Int, Nothing},
@@ -226,11 +203,10 @@ function _de_from_raw(
     )
 
     for (wi, tp) in enumerate(ch_data.timepoints)
-        ergodicity[wi] = tp.error
+        ergodicity[wi] = tp.value
     end
 
     params = _make_params(;
-        sfreq=sfreq,
         delays=delays,
         model=model,
         WL=WL,

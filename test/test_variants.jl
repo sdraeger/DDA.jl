@@ -32,13 +32,8 @@ const CT_REQUIRING_VARIANTS = ["CT", "CD", "DE"]
         @test BINARY_NAME == "run_DDA_AsciiEdf"
         @test REQUIRES_SHELL_WRAPPER == true
         @test SHELL_COMMAND == "sh"
-        @test "linux" in SUPPORTED_PLATFORMS
-        @test "macos" in SUPPORTED_PLATFORMS
-        @test "windows" in SUPPORTED_PLATFORMS
-        @test length(SUPPORTED_PLATFORMS) == 3
         @test SELECT_MASK_SIZE == 6
         @test length(VARIANT_REGISTRY) == SELECT_MASK_SIZE
-        @test DelayDifferentialAnalysis.Variants === DelayDifferentialAnalysis.Flavors
     end
 
     # =============================================================================
@@ -224,7 +219,7 @@ const CT_REQUIRING_VARIANTS = ["CT", "CD", "DE"]
             @test generate_select_mask(["ST", "SY"]) == [1, 0, 0, 0, 0, 1]
             @test generate_select_mask(["ST", "CT", "CD", "DE", "SY"]) == [1, 1, 1, 0, 1, 1]
             @test generate_select_mask(String[]) == [0, 0, 0, 0, 0, 0]
-            @test generate_select_mask(["ST", "XX", "INVALID", "SY"]) == [1, 0, 0, 0, 0, 1]
+            @test_throws ErrorException generate_select_mask(["ST", "XX", "INVALID", "SY"])
         end
 
         @testset "Parse" begin

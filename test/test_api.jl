@@ -11,7 +11,7 @@ using DelayDifferentialAnalysis
             @info "Skipping run_st integration test: DDA binary not found"
         else
             data = randn(2, 10000)
-            result = run_st(data=data; sfreq=256.0, WL=200, WS=100)
+            result = run_st(data=data; WL=200, WS=100)
 
             @test result isa STResult
             @test n_channels(result) == 2
@@ -27,7 +27,7 @@ using DelayDifferentialAnalysis
             @info "Skipping run_st custom labels test: DDA binary not found"
         else
             data = randn(2, 10000)
-            result = run_st(data=data; sfreq=256.0, WL=200, WS=100,
+            result = run_st(data=data; WL=200, WS=100,
                            channel_labels=["Fp1", "Fp2"])
             @test result.channel_labels == ["Fp1", "Fp2"]
         end
@@ -40,7 +40,7 @@ using DelayDifferentialAnalysis
             # CT needs more data and explicit CT window params
             data = randn(3, 20000)
             try
-                result = run_ct(data=data; sfreq=256.0, WL=200, WS=100, ct_wl=2, ct_ws=2)
+                result = run_ct(data=data; WL=200, WS=100, ct_wl=2, ct_ws=2)
                 @test result isa CTResult
                 @test n_pairs(result) == 3  # C(3,2) = 3
                 @test n_windows(result) > 0
@@ -54,7 +54,7 @@ using DelayDifferentialAnalysis
 
     @testset "run_ct requires 2+ channels" begin
         data = randn(1, 5000)
-        @test_throws ErrorException run_ct(data=data; sfreq=256.0)
+        @test_throws ErrorException run_ct(data=data)
     end
 
     @testset "Public run_* APIs are keyword-only" begin
@@ -150,7 +150,6 @@ using DelayDifferentialAnalysis
         result = DelayDifferentialAnalysis.API._st_from_raw(
             channels,
             ["ch1", "ch2"];
-            sfreq=1.0,
             delays=[7, 10],
             model=[1, 2, 10],
             WL=128,
@@ -201,7 +200,7 @@ using DelayDifferentialAnalysis
             # DE needs more data
             data = randn(2, 20000)
             try
-                result = run_de(data=data; sfreq=256.0, WL=200, WS=100, ct_wl=2, ct_ws=2)
+                result = run_de(data=data; WL=200, WS=100, ct_wl=2, ct_ws=2)
                 @test result isa DEResult
                 @test n_windows(result) > 0
                 @test length(result.ergodicity) == n_windows(result)

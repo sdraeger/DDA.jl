@@ -12,7 +12,6 @@ result = run_st(
     file_path="data.edf",
     channels=[1, 2, 3],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    derivative_points=3,
     WL=200,
     WS=100,
 )
@@ -60,7 +59,6 @@ result = run_DDA(
     channels=[1, 2, 3],
     flavors=["ST"],
     binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
-    derivative_points=3,
     WL=200,
     WS=100,
 )
@@ -68,12 +66,31 @@ result = run_DDA(
 """
 module DelayDifferentialAnalysis
 
+# --- Defaults (parameter constants) ---
+include("Defaults.jl")
+using .DDADefaults
+
+# --- Optional dependency loading ---
+include("OptionalDeps.jl")
+
 # --- Flavors (binary metadata, SELECT masks, file types) ---
 include("Flavors.jl")
 using .Flavors
-const Variants = Flavors
+using .Flavors: SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER,
+    SHELL_COMMAND,
+    BINARY_ENV_VAR, DEFAULT_BINARY_PATHS,
+    find_binary, require_binary,
+    ChannelFormat, Individual, Pairs, DirectedPairs,
+    OutputColumns, VariantMetadata,
+    VARIANT_REGISTRY, VARIANT_ORDER,
+    ST, CT, CD, RESERVED, DE, SY,
+    get_variant_by_abbrev, get_variant_by_suffix, get_variant_by_position,
+    active_variants, generate_select_mask, parse_select_mask, format_select_mask,
+    DEFAULT_DELAYS,
+    requires_ct_params, SelectMaskPositions,
+    FileType, EDF, ASCII, get_flag, file_type_from_extension
 export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
-export SHELL_COMMAND, SUPPORTED_PLATFORMS
+export SHELL_COMMAND
 export BINARY_ENV_VAR, DEFAULT_BINARY_PATHS
 export find_binary, require_binary
 export ChannelFormat, Individual, Pairs, DirectedPairs
@@ -92,32 +109,44 @@ using .DDADefaults
 
 # --- Model encoding ---
 include("ModelEncoding.jl")
-using .ModelEncoding
+using .ModelEncoding: generate_monomials, model_matrix_to_encoding,
+    monomial_to_text, monomial_to_latex,
+    decode_model_encoding, visualize_model_space
 export generate_monomials, model_matrix_to_encoding, monomial_to_text, monomial_to_latex
 export decode_model_encoding, visualize_model_space
 
 # --- Native Julia engine (CPU + optional CUDA) ---
 include("NativeDDA.jl")
-using .NativeDDA
+using .NativeDDA: NativeDDAResult, NativeFlavorResult, flavor_result, run_dda_matrix
 export NativeDDAResult, NativeFlavorResult, flavor_result, run_dda_matrix
 
 # --- Result types ---
 include("Results.jl")
-using .Results
+using .Results: STResult, CTResult, DEResult,
+    n_channels, n_windows, n_coeffs, n_pairs, to_dataframe
 export STResult, CTResult, DEResult
 export n_channels, n_windows, n_coeffs, n_pairs, to_dataframe
 
 # --- Runner (binary execution + parsing) ---
 include("Runner.jl")
 using .Runner
+using .Runner: DDARequest, DDAResult, VariantResultData,
+    DDARunner, run_DDA, flavor_matrix,
+    StructuredTimepoint, StructuredChannelData,
+    run_analysis_structured, parse_output_file_structured
 export DDARequest, DDAResult, VariantResultData
-export DDARunner, run_DDA
+export DDARunner, run_DDA, flavor_matrix
 export StructuredTimepoint, StructuredChannelData
 export run_analysis_structured, parse_output_file_structured
 
 # --- Structure selection ---
 include("StructureSelection.jl")
-using .StructureSelection
+using .StructureSelection: ChannelStructureSelectionResult,
+    PerChannelStructureSelectionResult,
+    StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection,
+    StructureSelectionRun, structure_selection_compute, structure_selection_read,
+    structure_selection_select,
+    print_structure_selection, write_model_terminal, write_model_LaTeX
 export ChannelStructureSelectionResult, PerChannelStructureSelectionResult
 export StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection
 export StructureSelectionRun, structure_selection_compute, structure_selection_read
@@ -126,24 +155,27 @@ export print_structure_selection, write_model_terminal, write_model_LaTeX
 
 # --- High-level API ---
 include("API.jl")
-using .API
+using .API: run_st, run_ct, run_de
 export run_st, run_ct, run_de
 
 # --- Batch processing ---
 include("Batch.jl")
-using .Batch
-export GroupResult, run_batch, collect_results
+using .Batch: GroupResult, DEGroupResult, run_batch, collect_results,
+    n_subjects, mean_over_windows
+export GroupResult, DEGroupResult, run_batch, collect_results
 export n_subjects, mean_over_windows
 
 # --- Statistics ---
 include("Stats.jl")
-using .Stats
+using .Stats: PermutationResult, EffectSizeResult, WindowComparisonResult,
+    permutation_test, compute_effect_size, compare_windows
 export PermutationResult, EffectSizeResult, WindowComparisonResult
 export permutation_test, compute_effect_size, compare_windows
 
 # --- Plotting (lazy Plots.jl) ---
 include("Plotting.jl")
-using .Plotting
+using .Plotting: plot_coefficients, plot_heatmap, plot_errors, plot_ergodicity,
+    plot_model, plot_structure_selection
 export plot_coefficients, plot_heatmap, plot_errors, plot_ergodicity, plot_model
 export plot_structure_selection
 

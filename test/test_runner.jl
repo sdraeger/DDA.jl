@@ -6,6 +6,7 @@ Integration tests (actual binary execution) are skipped if binary is not found.
 =#
 
 using Test
+using Dates
 using DelayDifferentialAnalysis
 
 function write_test_edf(path::String, labels::Vector{String})
@@ -84,8 +85,7 @@ end
                 order=5,
                 nr_tau=3,
                 time_range=(0.0, 10000.0),
-                ct_pairs=[(1, 2)],
-                cd_pairs=[(1, 2), (2, 1)],
+                select=[1, 1, 0, 0, 0, 0],
                 sampling_rate=(500, 1000),
                 TM=11,
                 out_fn="/tmp/custom_dda_output"
@@ -102,8 +102,7 @@ end
             @test request.model_terms == [4, 7, 9]
             @test request.time_range.start == 0.0
             @test request.time_range.stop == 10000.0
-            @test request.ct_channel_pairs == [(1, 2)]
-            @test request.cd_channel_pairs == [(1, 2), (2, 1)]
+            @test request.select == [1, 1, 0, 0, 0, 0]
             @test request.sampling_rate == (500, 1000)
             @test request.tm == 11
             @test request.out_fn == "/tmp/custom_dda_output"
@@ -112,7 +111,7 @@ end
         @testset "Default model parameters" begin
             request = DDARequest("test.edf", [1], ["ST"])
 
-            @test request.model_params.derivative_points == 3
+            @test request.model_params.derivative_points == 4
             @test request.model_params.order == 4
             @test request.model_params.nr_tau == 2
         end
@@ -407,7 +406,7 @@ end
             [variant],
             request.window_params,
             request.delay_params,
-            "2026-05-14T00:00:00",
+            Dates.DateTime("2026-05-14T00:00:00"),
         )
         legacy_result = DDAResult(
             "analysis",
@@ -418,7 +417,7 @@ end
             [variant],
             request.window_params,
             request.delay_params,
-            "2026-05-14T00:00:00",
+            Dates.DateTime("2026-05-14T00:00:00"),
         )
 
         @test :t in fieldnames(typeof(result))
@@ -473,7 +472,7 @@ end
         @test result.coefficients[1, 2, :] == [4.0, 5.0, 6.0]
         @test result.coefficients[2, 1, :] == [7.0, 8.0, 9.0]
         @test result.errors == [0.1 0.2; 0.3 0.4]
-        @test result.t == [24.0, 124.0]
+        @test result.t == [25.0, 125.0]
     end
 
     # =============================================================================
@@ -648,6 +647,49 @@ end
                 binary_path=fake_binary,
             )
 
+            @testset "request cannot be combined with analysis keywords" begin
+                request = DDARequest("test.edf", [1], ["ST"])
+                err = nothing
+                try
+                    run_DDA(; request=request, WL=100)
+                catch e
+                    err = e
+                end
+                @test err !== nothing
+                @test occursin("not both", string(err))
+                @test occursin("WL", string(err))
+
+                @test_throws ErrorException run_DDA(; request=request, file_path="other.edf")
+                @test_throws ErrorException run_DDA(;
+                    request=request,
+                    channels=[1],
+                    flavors=["ST"],
+                    binary_path=fake_binary,
+                )
+                @test_throws ErrorException run_analysis_structured(;
+                    request=request,
+                    flavors=["ST"],
+                )
+            end
+
+            @testset "missing variant output fails loudly" begin
+                empty_output = joinpath(mktempdir(), "out")
+                request = DDARequest("test.edf", [1], ["ST"])
+                err = nothing
+                try
+                    DelayDifferentialAnalysis.Runner._parse_structured_outputs(
+                        request,
+                        empty_output,
+                        ["ST"],
+                    )
+                catch e
+                    err = e
+                end
+                @test err !== nothing
+                @test occursin("No DDA output found", string(err))
+                @test occursin("ST", string(err))
+            end
+
             err = nothing
             try
                 run_DDA(;
@@ -712,7 +754,7 @@ end
             @test "-MODEL" in argv
             @test "-TAU" in argv
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/no_channels_output -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 3 -order 4 -nr_tau 2"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/no_channels_output -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 4 -order 4 -nr_tau 2"
             end
         finally
             rm(fake_binary, force=true)
@@ -870,7 +912,7 @@ end
             @test !occursin(" -WLms ", default_cmd_str)
             @test !occursin(" -WSms ", default_cmd_str)
             if !Sys.iswindows()
-                @test default_cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/default_out -CH_list 1 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -dm 3 -order 4 -nr_tau 2"
+                @test default_cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/default_out -CH_list 1 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -TAU 7 10 -dm 4 -order 4 -nr_tau 2"
             end
         finally
             rm(fake_binary, force=true)
@@ -967,7 +1009,7 @@ end
             @test !("WN_list" in argv)
             @test argv[(findfirst(==("-WN_list"), argv) + 1):end] == ["4", "8", "12"]
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/passthrough_out -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -dm 3 -order 4 -nr_tau 2 -WL_CT 33 -WS_CT 22 -TAU_file /tmp/tau_values.txt -TAU2 11 12 -MODEL2 2 5 9 -NoNorm -WN_list 4 8 12"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/passthrough_out -CH_list 1 2 -SELECT 1 0 0 0 0 0 -MODEL 1 2 10 -dm 4 -order 4 -nr_tau 2 -WL_CT 33 -WS_CT 22 -TAU_file /tmp/tau_values.txt -TAU2 11 12 -MODEL2 2 5 9 -NoNorm -WN_list 4 8 12"
             end
         finally
             rm(fake_binary, force=true)
@@ -1139,7 +1181,7 @@ end
             @test request.variants == ["DE", "SY"]
             @test request.select == [0, 0, 0, 0, 1, 1]
             if !Sys.iswindows()
-                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/select_out -CH_list 1 2 -SELECT 0 0 0 0 1 1 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 3 -order 4 -nr_tau 2"
+                @test cmd_str == "sh $fake_binary -EDF -DATA_FN test.edf -OUT_FN /tmp/select_out -CH_list 1 2 -SELECT 0 0 0 0 1 1 -MODEL 1 2 10 -TAU 7 10 -WL 200 -WS 100 -dm 4 -order 4 -nr_tau 2"
             end
         finally
             rm(fake_binary, force=true)
