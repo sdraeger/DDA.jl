@@ -1,8 +1,3 @@
-const NATIVE_MODEL_TERMS = [1, 2, 10]
-const NATIVE_DELAYS = [7, 10]
-const NATIVE_DERIVATIVE_POINTS = 4
-const NATIVE_ORDER = 4
-const NATIVE_NR_TAU = 2
 const NATIVE_WINDOW_LENGTH = 200
 const NATIVE_WINDOW_STEP = 100
 
@@ -128,14 +123,14 @@ end
 function _apply_nan_runs!(data::Matrix{Float64}, minimum_run::Int)
     minimum_run <= 0 && return data
     for channel in axes(data, 2)
-        first = 1
-        while first <= size(data, 1)
-            last = first
-            while last < size(data, 1) && data[last + 1, channel] == data[first, channel]
-                last += 1
+        run_start = 1
+        while run_start <= size(data, 1)
+            run_end = run_start
+            while run_end < size(data, 1) && data[run_end + 1, channel] == data[run_start, channel]
+                run_end += 1
             end
-            last - first + 1 >= minimum_run && (data[first:last, channel] .= NaN)
-            first = last + 1
+            run_end - run_start + 1 >= minimum_run && (data[run_start:run_end, channel] .= NaN)
+            run_start = run_end + 1
         end
     end
     return data

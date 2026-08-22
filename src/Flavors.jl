@@ -2,25 +2,7 @@
 
 module Flavors
 
-export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
-export SHELL_COMMAND, SUPPORTED_PLATFORMS
-export BINARY_ENV_VAR, DEFAULT_BINARY_PATHS
-export find_binary, require_binary
-export ChannelFormat, Individual, Pairs, DirectedPairs
-export OutputColumns, VariantMetadata
-export VARIANT_REGISTRY, VARIANT_ORDER
-export ST
-export CT
-export CD
-export RESERVED
-export DE
-export SY
-
-export get_variant_by_abbrev, get_variant_by_suffix, get_variant_by_position
-export active_variants, generate_select_mask, parse_select_mask, format_select_mask
-export DEFAULT_DELAYS
-export requires_ct_params, SelectMaskPositions
-export FileType, EDF, ASCII, get_flag, file_type_from_extension
+using ..DDADefaults
 
 # =============================================================================
 # CONSTANTS
@@ -31,11 +13,6 @@ const SELECT_MASK_SIZE = 6
 const BINARY_NAME = "run_DDA_AsciiEdf"
 const REQUIRES_SHELL_WRAPPER = true
 const SHELL_COMMAND = "sh"
-const SUPPORTED_PLATFORMS = [
-    "linux",
-    "macos",
-    "windows",
-]
 
 # =============================================================================
 # BINARY RESOLUTION
@@ -342,6 +319,14 @@ module SelectMaskPositions
     const SY = 5
 end
 
+# Fail at load time if SELECT mask positions ever drift from the registry.
+@assert SelectMaskPositions.ST == ST.position &&
+        SelectMaskPositions.CT == CT.position &&
+        SelectMaskPositions.CD == CD.position &&
+        SelectMaskPositions.RESERVED == RESERVED.position &&
+        SelectMaskPositions.DE == DE.position &&
+        SelectMaskPositions.SY == SY.position "SelectMaskPositions drifted from VARIANT_REGISTRY"
+
 # =============================================================================
 # UTILITY FUNCTIONS
 # =============================================================================
@@ -369,6 +354,8 @@ end
 """
 Generate a SELECT mask from variant abbreviations.
 
+Throws an error for unknown abbreviations.
+
 # Examples
 ```julia
 generate_select_mask(["ST", "SY"])  # [1, 0, 0, 0, 0, 1]
@@ -378,9 +365,10 @@ function generate_select_mask(variants::Vector{<:AbstractString})::Vector{UInt8}
     mask = zeros(UInt8, SELECT_MASK_SIZE)
     for abbrev in variants
         v = get_variant_by_abbrev(abbrev)
-        if v !== nothing
-            mask[v.position + 1] = 1  # Julia is 1-indexed
-        end
+        v === nothing && error(
+            "Unknown DDA variant abbreviation '$(abbrev)'. Valid variants: $(join(VARIANT_ORDER, ", "))",
+        )
+        mask[v.position + 1] = 1  # Julia is 1-indexed
     end
     return mask
 end
@@ -415,11 +403,8 @@ end
 # DELAYS
 # =============================================================================
 
-"""Default delay values (integers)."""
-const DEFAULT_DELAYS = [
-    7,
-    10,
-]
+"""Default delay values (integers). Single source: `DDADefaults.DELAYS`."""
+const DEFAULT_DELAYS = collect(DDADefaults.DELAYS)
 
 # =============================================================================
 # FILE TYPES

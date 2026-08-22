@@ -1,7 +1,7 @@
 """Default parameter values for DDA analysis."""
 module DDADefaults
     const MODEL_PARAMS = [1, 2, 10]
-    const DERIVATIVE_POINTS = 3
+    const DERIVATIVE_POINTS = 4
     const POLYNOMIAL_ORDER = 4
     const NUM_TAU = 2
     const WL = nothing

@@ -12,11 +12,11 @@ function run_dda_matrix(
     flavors=("ST",),
     window_length::Int=NATIVE_WINDOW_LENGTH,
     window_step::Int=NATIVE_WINDOW_STEP,
-    delays=NATIVE_DELAYS,
-    model_terms=NATIVE_MODEL_TERMS,
-    derivative_points::Int=NATIVE_DERIVATIVE_POINTS,
-    order::Int=NATIVE_ORDER,
-    nr_tau::Int=NATIVE_NR_TAU,
+    delays=DDADefaults.DELAYS,
+    model_terms=DDADefaults.MODEL_PARAMS,
+    derivative_points::Int=DDADefaults.DERIVATIVE_POINTS,
+    order::Int=DDADefaults.POLYNOMIAL_ORDER,
+    nr_tau::Int=DDADefaults.NUM_TAU,
     ct_channel_pairs=nothing,
     cd_channel_pairs=nothing,
     ct_window_length=nothing,
@@ -228,7 +228,7 @@ function run_dda_matrix(
     ))
     ct_matrix !== nothing && push!(results, NativeFlavorResult(
         "CT", "Cross-Timeseries (CT)", ct_matrix,
-        _group_labels(labels, ct_groups, "&"), markers,
+        _group_labels(labels, ct_groups, "-"), markers,
     ))
     cd_matrix !== nothing && push!(results, NativeFlavorResult(
         "CD", "Cross-Dynamical (CD)", cd_matrix,
@@ -236,7 +236,7 @@ function run_dda_matrix(
     ))
     de_matrix !== nothing && push!(results, NativeFlavorResult(
         "DE", "Dynamical Ergodicity (DE)", de_matrix,
-        _group_labels(labels, de_groups, "&"), markers,
+        _group_labels(labels, de_groups, "-"), markers,
     ))
     sy_matrix !== nothing && push!(results, NativeFlavorResult(
         "SY", "Synchronization (SY)", sy_matrix,
@@ -250,10 +250,10 @@ function _sliding_groups(channels::Vector{Int}, window_length, window_step)::Vec
     step = window_step === nothing ? max(length_value, 1) : max(Int(window_step), 1)
     (length_value <= 0 || length(channels) < length_value) && return Vector{Vector{Int}}()
     groups = Vector{Vector{Int}}()
-    first = 1
-    while first + length_value - 1 <= length(channels)
-        push!(groups, copy(channels[first:(first + length_value - 1)]))
-        first += step
+    start_idx = 1
+    while start_idx + length_value - 1 <= length(channels)
+        push!(groups, copy(channels[start_idx:(start_idx + length_value - 1)]))
+        start_idx += step
     end
     return groups
 end
