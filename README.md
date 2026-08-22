@@ -10,12 +10,7 @@ can run on the CPU or use CUDA for its batched regression work.
 
 ## Installation
 
-```julia
-using Pkg
-Pkg.add("DelayDifferentialAnalysis")
-```
-
-For the development version:
+The package is distributed via GitHub:
 
 ```julia
 using Pkg
@@ -60,8 +55,8 @@ result = run_DDA(
 println(size(result.T))   # first two integer columns from the native output
 println(size(result.t))   # derived time axis
 println(size(result.A))   # remaining coefficient/error columns
-println(size(result.ST))  # flavor-specific output matrix
-println(size(result.CT))
+println(size(result["ST"]))  # flavor-specific output matrix
+println(size(flavor_matrix(result, "CT")))
 ```
 
 `channels` is optional. If omitted or set to `nothing`, no `-CH_list` is passed
@@ -86,7 +81,24 @@ run_DDA(
 ```
 
 The typed helpers `run_st`, `run_ct`, and `run_de` call the same execution path
-with common flavor defaults.
+with common flavor defaults and return typed results:
+
+```julia
+result = run_st(
+    file_path="recording.edf",
+    channels=[1, 2],
+    binary_path="/opt/dda/bin/run_DDA_AsciiEdf",
+)
+
+size(result.coefficients)  # (n_channels, n_windows, n_coeffs)
+result.errors               # (n_channels, n_windows)
+result.t                    # derived time axis
+to_dataframe(result)        # long-format table (requires DataFrames.jl)
+```
+
+`run_ct` returns a `CTResult` (one row per channel pair), `run_de` a
+`DEResult` (`result.ergodicity`). All three accept in-memory data via
+`data::AbstractMatrix` (channels × samples) instead of `file_path`.
 
 ## Native Julia Engine
 
@@ -128,12 +140,11 @@ result = run_dda_matrix(samples; device="cuda:0", flavors=["ST", "CT"])
 
 CUDA.jl is optional and is loaded only for a CUDA device. Data preparation and
 flavor assembly remain on the CPU; CUDA accelerates the independent regression
-problems in batches. The native API and the external-binary API are separate,
-so existing `run_DDA`, `run_st`, `run_ct`, and `run_de` calls are unchanged.
+problems in batches.
 
 ## Structure Selection
 
-Structure selection has two recommended steps:
+Structure selection has three steps:
 
 1. `structure_selection_compute` computes and caches DDA outputs.
 2. `structure_selection_read` restores a previous compute run after restarting
@@ -240,13 +251,12 @@ per_channel = structure_selection_select(run; model_scope=:per_channel)
 ```
 
 The old one-shot `structure_selection(...)` wrapper is still available for
-small interactive runs. New long-running workflows should prefer
-`structure_selection_compute` plus `structure_selection_select`.
+small interactive runs; prefer the compute/select split otherwise.
 
 ### Visualize Cached Selection Results
 
-`plot_structure_selection` uses Plots.jl and reads the same cached ST outputs
-without rerunning the DDA binary. The `:all` view shows the winning model number
+`plot_structure_selection` reads the same cached ST outputs without rerunning
+the DDA binary. The `:all` view shows the winning model number
 for every valid two-delay pair after aggregating over all windows:
 
 ```julia
@@ -263,6 +273,33 @@ plot_structure_selection(run; mode=:time, channels=[1])
 Both views compare only models with two active delays. Symmetric models are
 mirrored across the delay-pair diagonal; asymmetric models retain their delay
 ordering. Colors identify row numbers in `run.MOD`.
+
+## Plotting
+
+Plotting functions require Plots.jl (`Pkg.add("Plots")`); it is loaded only
+when a plot is requested.
+
+```julia
+plot_coefficients(result)              # coefficient time series per channel
+plot_heatmap(result; coeff_index=1)    # channels × windows heatmap
+plot_errors(result)                    # reconstruction error
+plot_ergodicity(de_result)             # DEResult ergodicity trace
+```
+
+## Aggregation and Statistics
+
+Group-level helpers operate on vectors of typed results:
+
+```julia
+results = run_batch(files; variant="st")          # many files, one flavor
+group = collect_results(results)                   # GroupResult (ST/CT)
+de_group = collect_results(de_results)             # DEGroupResult
+mean_over_windows(group)
+
+permutation_test(group_a, group_b)                 # PermutationResult
+compute_effect_size(group_a, group_b)              # Cohen's d
+compare_windows(result, 1:10, 11:20)               # baseline vs test windows
+```
 
 ## Parameter Notes
 
@@ -293,8 +330,8 @@ Parsed `run_DDA` results expose:
 - `result.t`: derived time axis, computed from `T[:, 1]`, `TM`,
   `derivative_points`, and `sampling_rate` when available.
 - `result.A`: remaining native output columns for the first returned flavor.
-- `result.ST`, `result.CT`, `result.CD`, `result.DE`, `result.SY`: direct
-  flavor matrices when those outputs are present.
+- `flavor_matrix(result, "ST")` (also `result["ST"]`): direct flavor matrices
+  when those outputs are present. The `result.ST` property style is deprecated.
 
 File-based calls infer labels from EDF headers or optional ASCII/TSV header
 rows. Pass `channel_labels` to override labels explicitly.

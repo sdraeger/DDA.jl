@@ -1,8 +1,10 @@
-"""Structured result types for DDA analysis."""
-module Results
+"""Structured result types for DDA analysis.
 
-export STResult, CTResult, DEResult
-export n_channels, n_windows, n_coeffs, n_pairs, to_dataframe
+Note: `T` holds raw window-start coordinates (one value per window). This
+differs from the legacy `DDAResult.T`, which holds the first two integer
+output columns emitted by the binary.
+"""
+module Results
 
 """
     STResult
@@ -12,8 +14,8 @@ Single Timeseries analysis result.
 # Fields
 - `coefficients::Array{Float64,3}`: Shape `(n_channels, n_windows, n_coeffs)`.
 - `errors::Matrix{Float64}`: Shape `(n_channels, n_windows)`.
-- `T::Vector{Float64}`: Raw first column from the DDA output file.
-- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / SR` when `sampling_rate` is provided, otherwise unscaled.
+- `T::Vector{Float64}`: Raw window-start coordinates from the DDA output (first output column).
+- `t::Vector{Float64}`: Time axis. Computed as `(T + 1 + derivative_points + TM) / SR` when built through the high-level API with a sampling rate; otherwise equal to `T`.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `channel_labels::Vector{String}`: Label per channel.
@@ -38,8 +40,8 @@ Cross-Timeseries analysis result.
 # Fields
 - `coefficients::Array{Float64,3}`: Shape `(n_pairs, n_windows, n_coeffs)`.
 - `errors::Matrix{Float64}`: Shape `(n_pairs, n_windows)`.
-- `T::Vector{Float64}`: Raw first column from the DDA output file.
-- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / SR` when `sampling_rate` is provided, otherwise unscaled.
+- `T::Vector{Float64}`: Raw window-start coordinates from the DDA output (first output column).
+- `t::Vector{Float64}`: Time axis. Computed as `(T + 1 + derivative_points + TM) / SR` when built through the high-level API with a sampling rate; otherwise equal to `T`.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `pair_labels::Vector{String}`: Label per channel pair.
@@ -63,8 +65,8 @@ Dynamical Ergodicity analysis result.
 
 # Fields
 - `ergodicity::Vector{Float64}`: Ergodicity measure per window.
-- `T::Vector{Float64}`: Raw first column from the DDA output file.
-- `t::Vector{Float64}`: Derived time axis `(T + 1 + derivative_points + TM) / SR` when `sampling_rate` is provided, otherwise unscaled.
+- `T::Vector{Float64}`: Raw window-start coordinates from the DDA output (first output column).
+- `t::Vector{Float64}`: Time axis. Computed as `(T + 1 + derivative_points + TM) / SR` when built through the high-level API with a sampling rate; otherwise equal to `T`.
 - `window_starts::Vector{Int64}`: Start sample for each window.
 - `window_ends::Vector{Int64}`: End sample for each window.
 - `params::Dict{String,Any}`: Analysis parameters used.
