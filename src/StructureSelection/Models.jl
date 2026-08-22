@@ -103,7 +103,7 @@ function write_model_terminal(
 end
 
 """
-    write_model_LaTeX([io], MOD, SSYM, P_DDA, mm, x="x")
+    write_model_LaTeX([io], MOD, P_DDA, mm, x="x")
 
 Print row `mm` of `MOD` as a LaTeX DDA equation using the supplied monomial
 mapping table `P_DDA`.
@@ -111,7 +111,6 @@ mapping table `P_DDA`.
 function write_model_LaTeX(
     io::IO,
     MOD::AbstractMatrix{<:Integer},
-    _SSYM,
     P_DDA::AbstractMatrix{<:Integer},
     mm::Integer,
     x::AbstractString="x",
@@ -140,13 +139,12 @@ end
 
 function write_model_LaTeX(
     MOD::AbstractMatrix{<:Integer},
-    _SSYM,
     P_DDA::AbstractMatrix{<:Integer},
     mm::Integer,
     x::AbstractString="x";
     io::IO=stdout,
 )::Nothing
-    return write_model_LaTeX(io, MOD, _SSYM, P_DDA, mm, x)
+    return write_model_LaTeX(io, MOD, P_DDA, mm, x)
 end
 
 function _terminal_monomial(row, x::AbstractString)::String

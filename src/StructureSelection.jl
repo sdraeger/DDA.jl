@@ -6,16 +6,8 @@ using Random
 using Statistics
 using TOML
 using ..ModelEncoding: generate_monomials, model_matrix_to_encoding
+using ..Runner
 using ..Runner: run_DDA
-
-export ChannelStructureSelectionResult, PerChannelStructureSelectionResult
-export StructureSelectionTrial, StructureSelectionResult, make_MOD, structure_selection
-export StructureSelectionRun, structure_selection_compute, structure_selection_read
-export structure_selection_select
-export print_structure_selection, write_model_terminal, write_model_LaTeX
-
-const _POOL_LOCK_OWNER_FILE = "owner"
-const _POOL_OWNERLESS_LOCK_GRACE_SECONDS = 60.0
 
 """One evaluated structure-selection candidate."""
 struct StructureSelectionTrial
@@ -45,7 +37,6 @@ StructureSelectionResult(best_model, best_delays, best_score, best_result, trial
 
 """Structure-selection result for one input channel in per-channel mode."""
 struct ChannelStructureSelectionResult
-    channel_index::Int
     channel::Int
     selection::StructureSelectionResult
 end
@@ -135,11 +126,20 @@ function structure_selection_select(run::StructureSelectionRun; kwargs...)
 end
 
 function structure_selection_select(; run=nothing, kwargs...)
-    selected_run = run === nothing ? _LAST_STRUCTURE_SELECTION_RUN[] : run
-    selected_run === nothing && error(
-        "No structure-selection run is available; call `structure_selection_compute` or pass a `StructureSelectionRun`.",
-    )
-    return _structure_selection_select(selected_run; kwargs...)
+    if run === nothing
+        Base.depwarn(
+            "Calling `structure_selection_select()` without `run` is deprecated; " *
+            "pass the `StructureSelectionRun` returned by `structure_selection_compute` " *
+            "or `structure_selection_read`.",
+            :structure_selection_select,
+        )
+        selected_run = _LAST_STRUCTURE_SELECTION_RUN[]
+        selected_run === nothing && error(
+            "No structure-selection run is available; call `structure_selection_compute` or pass a `StructureSelectionRun`.",
+        )
+        return _structure_selection_select(selected_run; kwargs...)
+    end
+    return _structure_selection_select(run; kwargs...)
 end
 
 

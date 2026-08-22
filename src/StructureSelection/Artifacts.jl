@@ -6,6 +6,12 @@ function _resolve_structure_delays(delays, candidate_delays, tau_file)
         error("Pass `delays`, not both `delays` and deprecated `candidate_delays`")
     end
     selected = delays !== nothing ? delays : candidate_delays
+    if delays === nothing && candidate_delays !== nothing
+        Base.depwarn(
+            "`candidate_delays` is deprecated, use `delays`.",
+            :_resolve_structure_delays,
+        )
+    end
     selected === nothing && error("Provide `delays` for structure selection")
 
     if selected isa AbstractVector{<:Integer}
@@ -51,6 +57,18 @@ function _ordered_candidates(values::Vector{T}, randomize::Bool, rng)::Vector{T}
     return randomize && length(values) > 1 ? Random.shuffle(rng, values) : values
 end
 
+# Locks guard against concurrent processes computing the same candidate into the
+# same output base. A directory that can be created atomically acts as the lock;
+# stale locks (crashed processes) are reclaimed after `_POOL_LOCK_STALE_SECONDS`.
+# Duplicate compute after a steal is safe: outputs are content-checked before reuse.
+const _POOL_LOCK_STALE_SECONDS = Ref(12 * 3600.0)
+
+_pool_lock_path(output_base::AbstractString) = "$(output_base).lock"
+
+function _lock_is_stale(lock_path::AbstractString, now::Real=time())::Bool
+    return isdir(lock_path) && now - stat(lock_path).mtime > _POOL_LOCK_STALE_SECONDS[]
+end
+
 function _run_or_reuse_pool_output(
     run_candidate::Function,
     output_base::Union{String, Nothing},
@@ -58,13 +76,13 @@ function _run_or_reuse_pool_output(
 )
     output_base === nothing && return run_candidate()
 
-    lock_path = "$(output_base).lock"
+    lock_path = _pool_lock_path(output_base)
     while true
         state, result = _pool_artifact_state(output_base, expected_tau_rows)
         state == :complete && return result
         state == :conflict && !ispath(lock_path) && return nothing
 
-        if _try_create_lock(lock_path)
+        if _acquire_pool_lock(lock_path)
             try
                 state, result = _pool_artifact_state(output_base, expected_tau_rows)
                 state == :complete && return result
@@ -80,93 +98,33 @@ function _run_or_reuse_pool_output(
     end
 end
 
-function _try_create_lock(lock_path::AbstractString)::Bool
+function _acquire_pool_lock(lock_path::AbstractString)::Bool
     try
-        _create_lock(lock_path)
+        mkdir(lock_path)
         return true
     catch
-        if ispath(lock_path)
-            _remove_stale_lock(lock_path) || return false
-            _create_lock(lock_path)
-            return true
+        if _lock_is_stale(lock_path)
+            rm(lock_path; recursive=true, force=true)
+            try
+                mkdir(lock_path)
+                return true
+            catch
+                return false
+            end
         end
-        rethrow()
+        return false
     end
-end
-
-function _create_lock(lock_path::AbstractString)::Nothing
-    mkdir(lock_path)
-    try
-        _write_lock_owner(lock_path)
-    catch
-        rm(lock_path; recursive=true, force=true)
-        rethrow()
-    end
-    return nothing
 end
 
 function _wait_for_pool_result(output_base::String, lock_path::String, expected_tau_rows::Integer)
-    while ispath(lock_path)
+    while ispath(lock_path) && !_lock_is_stale(lock_path)
         state, result = _pool_artifact_state(output_base, expected_tau_rows)
         state == :complete && return result
-        _remove_stale_lock(lock_path) && break
         sleep(0.5)
     end
 
     state, result = _pool_artifact_state(output_base, expected_tau_rows)
     return state == :complete ? result : nothing
-end
-
-function _write_lock_owner(lock_path::AbstractString)::Nothing
-    write(
-        joinpath(lock_path, _POOL_LOCK_OWNER_FILE),
-        "pid=$(getpid())\nhost=$(gethostname())\n",
-    )
-    return nothing
-end
-
-function _remove_stale_lock(lock_path::AbstractString)::Bool
-    isdir(lock_path) || return false
-    owner = _read_lock_owner(lock_path)
-    if owner === nothing
-        _ownerless_lock_is_stale(lock_path) || return false
-        rm(lock_path; recursive=true, force=true)
-        return true
-    end
-    if owner.host == gethostname() && !_pid_is_running(owner.pid)
-        rm(lock_path; recursive=true, force=true)
-        return true
-    end
-    return false
-end
-
-function _ownerless_lock_is_stale(lock_path::AbstractString, now::Real=time())::Bool
-    return now - stat(lock_path).mtime > _POOL_OWNERLESS_LOCK_GRACE_SECONDS
-end
-
-function _read_lock_owner(lock_path::AbstractString)
-    owner_path = joinpath(lock_path, _POOL_LOCK_OWNER_FILE)
-    isfile(owner_path) || return nothing
-    values = Dict{String, String}()
-    try
-        for line in eachline(owner_path)
-            parts = split(line, "="; limit=2)
-            length(parts) == 2 || continue
-            values[String(parts[1])] = String(parts[2])
-        end
-        pid = parse(Int, get(values, "pid", "0"))
-        host = get(values, "host", "")
-        return (pid=pid, host=host)
-    catch
-        return nothing
-    end
-end
-
-function _pid_is_running(pid::Integer)::Bool
-    pid > 0 || return false
-    Sys.iswindows() && return true
-    result = ccall(:kill, Cint, (Cint, Cint), Cint(pid), Cint(0))
-    return result == 0 || Base.Libc.errno() != 3
 end
 
 function _pool_artifact_state(output_base::String, expected_tau_rows::Integer)

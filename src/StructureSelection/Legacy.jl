@@ -111,7 +111,7 @@ function _structure_selection_resolved(
     scope = _normalize_model_scope(model_scope)
     if scope == :per_channel
         results = ChannelStructureSelectionResult[]
-        for (channel_idx, channel) in enumerate(_normalize_structure_channels(channels))
+        for channel in _normalize_structure_channels(channels)
             selection = _structure_selection_resolved(
                 run_once;
                 file_path=file_path,
@@ -136,11 +136,11 @@ function _structure_selection_resolved(
                 randomize=randomize,
                 rng=rng,
                 cleanup_on_error=cleanup_on_error,
-                _trial_prefix="structure_selection_ch$(channel_idx)",
+                _trial_prefix="structure_selection_ch$(channel)",
                 _artifacts_dir=_artifacts_dir,
                 kwargs...,
             )
-            push!(results, ChannelStructureSelectionResult(channel_idx, channel, selection))
+            push!(results, ChannelStructureSelectionResult(channel, selection))
         end
         return PerChannelStructureSelectionResult(results)
     end

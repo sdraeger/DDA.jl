@@ -137,9 +137,9 @@ function _structure_selection_select(
     if scope == :per_channel
         groups = _selection_channel_groups(run, selected_channels, model_numbers, :per_channel)
         results = ChannelStructureSelectionResult[]
-        for (idx, group) in enumerate(groups)
+        for group in groups
             selection = _structure_selection_select_joint(run, model_numbers, group, metric)
-            push!(results, ChannelStructureSelectionResult(idx, first(group), selection))
+            push!(results, ChannelStructureSelectionResult(first(group), selection))
         end
         return PerChannelStructureSelectionResult(results)
     end

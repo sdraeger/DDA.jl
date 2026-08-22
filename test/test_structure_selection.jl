@@ -790,21 +790,17 @@ using DelayDifferentialAnalysis
         end
     end
 
-    @testset "pool output replaces stale same-host lock" begin
-        if Sys.iswindows()
-            @test_skip false
-        else
-            out_dir = mktempdir()
-            try
-                output_base = joinpath(out_dir, "structure_selection_04")
-                lock_path = "$(output_base).lock"
-                mkdir(lock_path)
-                write(
-                    joinpath(lock_path, "owner"),
-                    "pid=999999999\nhost=$(gethostname())\n",
-                )
-                calls = Ref(0)
+    @testset "stale lock is reclaimed and output computed" begin
+        out_dir = mktempdir()
+        try
+            output_base = joinpath(out_dir, "structure_selection_04")
+            mkdir("$(output_base).lock")
+            calls = Ref(0)
 
+            stale_seconds = DelayDifferentialAnalysis.StructureSelection._POOL_LOCK_STALE_SECONDS
+            original = stale_seconds[]
+            stale_seconds[] = 0.0
+            try
                 task = @async DelayDifferentialAnalysis.StructureSelection._run_or_reuse_pool_output(
                     output_base,
                     3,
@@ -817,29 +813,31 @@ using DelayDifferentialAnalysis
                 @test istaskdone(task)
                 result = fetch(task)
                 @test calls[] == 1
+                @test !ispath("$(output_base).lock")
                 @test DelayDifferentialAnalysis.StructureSelection._score_result(result, :minimum_error) == 0.2
-                @test !ispath(lock_path)
             finally
-                rm(out_dir; recursive=true, force=true)
+                stale_seconds[] = original
             end
+        finally
+            rm(out_dir; recursive=true, force=true)
         end
     end
 
-    @testset "ownerless lock stale threshold protects new locks" begin
+    @testset "lock staleness threshold honors configured seconds" begin
         out_dir = mktempdir()
         try
             lock_path = joinpath(out_dir, "structure_selection_04.lock")
             mkdir(lock_path)
             mtime = stat(lock_path).mtime
-            grace = DelayDifferentialAnalysis.StructureSelection._POOL_OWNERLESS_LOCK_GRACE_SECONDS
+            threshold = DelayDifferentialAnalysis.StructureSelection._POOL_LOCK_STALE_SECONDS[]
 
-            @test !DelayDifferentialAnalysis.StructureSelection._ownerless_lock_is_stale(
+            @test !DelayDifferentialAnalysis.StructureSelection._lock_is_stale(
                 lock_path,
-                mtime + grace,
+                mtime + threshold - 1,
             )
-            @test DelayDifferentialAnalysis.StructureSelection._ownerless_lock_is_stale(
+            @test DelayDifferentialAnalysis.StructureSelection._lock_is_stale(
                 lock_path,
-                mtime + grace + 1,
+                mtime + threshold + 1,
             )
         finally
             rm(out_dir; recursive=true, force=true)
@@ -1085,11 +1083,9 @@ using DelayDifferentialAnalysis
 
             @test result isa PerChannelStructureSelectionResult
             @test length(result.results) == 2
-            @test result.results[1].channel_index == 1
             @test result.results[1].channel == 1
             @test result.results[1].selection.best_model == [1, 2, 6]
             @test result.results[1].selection.best_score == 0.1
-            @test result.results[2].channel_index == 2
             @test result.results[2].channel == 2
             @test result.results[2].selection.best_model == [1, 2, 10]
             @test result.results[2].selection.best_score == 0.2
@@ -1250,7 +1246,7 @@ using DelayDifferentialAnalysis
         P_DDA = DelayDifferentialAnalysis.StructureSelection._p_dda(2)
         io = IOBuffer()
 
-        write_model_LaTeX(io, MOD, nothing, P_DDA, 3)
+        write_model_LaTeX(io, MOD, P_DDA, 3)
         text = String(take!(io))
 
         @test occursin("\\dot{x}", text)

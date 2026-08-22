@@ -28,11 +28,11 @@ function _find_st_result(result)
 end
 
 function _resolve_structure_order(order, DDAorder)::Int
-    order === nothing && DDAorder === nothing && error("`order` or `DDAorder` is required")
-    if order !== nothing && DDAorder !== nothing && Int(order) != Int(DDAorder)
-        error("`order` and `DDAorder` disagree")
-    end
-    selected = DDAorder === nothing ? order : DDAorder
+    selected = Runner._resolve_optional_int_alias(
+        "order", order === nothing ? nothing : Int(order),
+        "DDAorder", DDAorder === nothing ? nothing : Int(DDAorder),
+    )
+    selected === nothing && error("`order` or `DDAorder` is required")
     selected > 0 || error("DDAorder must be positive")
     return Int(selected)
 end
@@ -362,29 +362,7 @@ function _read_structure_selection_series(
 end
 
 function _read_numeric_matrix(path::AbstractString)::Union{Matrix{Float64}, Nothing}
-    rows = Vector{Vector{Float64}}()
-    n_cols = 0
-    try
-        for line in eachline(path)
-            stripped = strip(line)
-            isempty(stripped) && continue
-            values = parse.(Float64, split(stripped))
-            if n_cols == 0
-                n_cols = length(values)
-            elseif length(values) != n_cols
-                return nothing
-            end
-            push!(rows, values)
-        end
-    catch
-        return nothing
-    end
-    isempty(rows) && return nothing
-    matrix = Matrix{Float64}(undef, length(rows), n_cols)
-    for row_idx in eachindex(rows)
-        matrix[row_idx, :] = rows[row_idx]
-    end
-    return matrix
+    return Runner._read_numeric_matrix_strict(path)
 end
 
 function _score_structure_error_rows(
