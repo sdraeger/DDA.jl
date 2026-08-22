@@ -5,7 +5,7 @@ using Printf
 using ..DDADefaults
 using ..Results: STResult, CTResult, DEResult
 using ..Runner
-using ..Runner: StructuredChannelData, run_analysis_structured
+using ..Runner: VariantResultData, DDARunner, DDARequest
 
 include("API/Helpers.jl")
 include("API/Conversions.jl")

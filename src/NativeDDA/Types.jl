@@ -27,7 +27,6 @@ struct ModelSpec
     window_step::Int
     max_delay::Int
     primary_terms::Vector{Vector{Int}}
-    secondary_terms::Vector{Vector{Int}}
 end
 
 struct PreparedWindow

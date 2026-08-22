@@ -53,11 +53,12 @@ function _run_file_flavor(
     TM::Int,
     out_fn::Union{String, Nothing},
     binary_path::Union{String, Nothing},
-)
-    return run_analysis_structured(;
-        file_path=file_path,
-        channels=selected_channels,
-        flavors=[flavor],
+)::Runner.VariantResultData
+    runner = DDARunner(; binary_path=binary_path)
+    request = DDARequest(
+        file_path,
+        selected_channels,
+        [flavor];
         WL=WL,
         WS=WS,
         ct_window_length=ct_wl,
@@ -70,8 +71,11 @@ function _run_file_flavor(
         sampling_rate=sampling_rate,
         TM=TM,
         out_fn=out_fn,
-        binary_path=binary_path,
     )
+    variants = Runner._run_and_parse(runner, request)
+    variant = findfirst(v -> v.variant_id == flavor, variants)
+    variant === nothing && error("No $flavor results found in DDA output")
+    return variants[variant]
 end
 
 """
@@ -119,7 +123,7 @@ function _run_st_file(
         TM=TM,
     )
 
-    raw = _run_file_flavor(
+    variant = _run_file_flavor(
         file_path,
         ctx.selected_channels,
         "ST";
@@ -136,9 +140,8 @@ function _run_st_file(
         binary_path=binary_path,
     )
 
-    haskey(raw, "ST") || error("No ST results found in DDA output")
     return _st_from_raw(
-        raw["ST"],
+        variant,
         ctx.labels;
         delays=delays,
         model=ctx.model_terms,
@@ -194,10 +197,10 @@ function _run_ct_file(
     length(ctx.selected_channels) >= 2 || error("CT analysis requires at least 2 channels, got $(length(ctx.selected_channels))")
 
     pair_labels = Runner._pair_labels(ctx.labels)
-    raw_pairs = StructuredChannelData[]
+    raw_pairs = VariantResultData[]
 
     for pair_channels in _pair_channel_sets(ctx.selected_channels)
-        raw = _run_file_flavor(
+        variant = _run_file_flavor(
             file_path,
             pair_channels,
             "CT";
@@ -215,10 +218,7 @@ function _run_ct_file(
             out_fn=out_fn,
             binary_path=binary_path,
         )
-
-        haskey(raw, "CT") || error("No CT results found in DDA output for channels $(pair_channels)")
-        isempty(raw["CT"]) && error("Empty CT result returned for channels $(pair_channels)")
-        push!(raw_pairs, raw["CT"][1])
+        push!(raw_pairs, variant)
     end
 
     return _ct_from_raw(
@@ -276,7 +276,7 @@ function _run_de_file(
         resolve_labels=false,
     )
 
-    raw = _run_file_flavor(
+    variant = _run_file_flavor(
         file_path,
         ctx.selected_channels,
         "DE";
@@ -295,9 +295,8 @@ function _run_de_file(
         binary_path=binary_path,
     )
 
-    haskey(raw, "DE") || error("No DE results found in DDA output")
     return _de_from_raw(
-        raw["DE"];
+        variant;
         delays=delays,
         model=ctx.model_terms,
         WL=ct_wl,

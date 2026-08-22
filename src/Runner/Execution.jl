@@ -107,6 +107,17 @@ function _parse_structured_outputs(
     return results
 end
 
+"""Run the binary once and parse its outputs into packed per-variant data.
+
+This is the single parse path shared by `run_DDA` (legacy result object) and
+the typed high-level API (`run_st`/`run_ct`/`run_de`).
+"""
+function _run_and_parse(runner::DDARunner, request::DDARequest)::Vector{VariantResultData}
+    return _with_DDA_output(runner, request) do output_base
+        return parse_results_legacy(request, output_base)
+    end
+end
+
 """Internal structured execution helper used by the keyword-only public API."""
 function _run_analysis_structured(runner::DDARunner, request::DDARequest)::Dict{String, Vector{StructuredChannelData}}
     return _with_DDA_output(runner, request) do output_base
@@ -147,9 +158,7 @@ end
 """Internal legacy execution helper used by the keyword-only public API."""
 function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
     analysis_id = string(UUIDs.uuid4())
-    variant_results = _with_DDA_output(runner, request) do output_base
-        return parse_results_legacy(request, output_base)
-    end
+    variant_results = _run_and_parse(runner, request)
 
     if isempty(variant_results)
         error("No data extracted from DDA output")

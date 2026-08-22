@@ -59,42 +59,28 @@ function _make_params(;
 end
 
 function _window_bounds(
-    n_windows::Int,
+    variant::VariantResultData,
     WL::Union{Int, Nothing},
-    WS::Union{Int, Nothing};
-    channels::Vector{StructuredChannelData}=StructuredChannelData[],
-    start_offset::Int=0,
+    WS::Union{Int, Nothing},
 )::Tuple{Vector{Int64}, Vector{Int64}}
     if WL === nothing || WS === nothing
-        return Runner._raw_window_bounds(channels)
+        return (variant.window_starts, variant.window_ends)
     end
-    return Runner._fixed_window_bounds(n_windows, WL, WS, start_offset)
+    return Runner._fixed_window_bounds(size(variant.coefficients, 2), WL, WS)
 end
 
 function _time_axes(
-    channels::Vector{StructuredChannelData},
-    derivative_points::Int,
-    TM::Int,
-    sampling_rate,
+    variant::VariantResultData,
     WL::Union{Int, Nothing},
-    WS::Union{Int, Nothing};
-    start_offset::Int=0,
+    WS::Union{Int, Nothing},
 )::Tuple{Vector{Float64}, Vector{Float64}, Vector{Int64}, Vector{Int64}}
-    n_windows = isempty(channels) ? 0 : length(channels[1].timepoints)
-    T = Runner._extract_raw_T(channels)
-    t = Runner._compute_t_axis(T, derivative_points, TM, sampling_rate)
-    window_starts, window_ends = _window_bounds(
-        n_windows,
-        WL,
-        WS;
-        channels=channels,
-        start_offset=start_offset,
-    )
-    return T, t, window_starts, window_ends
+    T = Float64.(variant.T[:, 1])
+    window_starts, window_ends = _window_bounds(variant, WL, WS)
+    return T, variant.t, window_starts, window_ends
 end
 
 function _st_from_raw(
-    channels::Vector{StructuredChannelData},
+    variant::VariantResultData,
     labels::Vector{String};
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
@@ -108,15 +94,7 @@ function _st_from_raw(
     out_fn::Union{String, Nothing},
     selected_channels::Vector{Int},
 )::STResult
-    coefficients, errors = Runner._coefficient_arrays(channels)
-    T, t, win_starts, win_ends = _time_axes(
-        channels,
-        derivative_points,
-        TM,
-        sampling_rate,
-        WL,
-        WS,
-    )
+    T, t, win_starts, win_ends = _time_axes(variant, WL, WS)
 
     params = _make_params(;
         delays=delays,
@@ -131,11 +109,11 @@ function _st_from_raw(
         channels=selected_channels,
         out_fn=out_fn,
     )
-    return STResult(coefficients, errors, T, t, win_starts, win_ends, labels, params)
+    return STResult(variant.coefficients, variant.errors, T, t, win_starts, win_ends, labels, params)
 end
 
 function _ct_from_raw(
-    pairs::Vector{StructuredChannelData},
+    variants::Vector{VariantResultData},
     pair_labels::Vector{String};
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
@@ -149,15 +127,10 @@ function _ct_from_raw(
     out_fn::Union{String, Nothing},
     selected_channels::Vector{Int},
 )::CTResult
-    coefficients, errors = Runner._coefficient_arrays(pairs)
-    T, t, win_starts, win_ends = _time_axes(
-        pairs,
-        derivative_points,
-        TM,
-        sampling_rate,
-        WL,
-        WS,
-    )
+    isempty(variants) && error("No CT results found in DDA output")
+    coefficients = cat((v.coefficients for v in variants)...; dims=1)
+    errors = vcat((v.errors for v in variants)...)
+    T, t, win_starts, win_ends = _time_axes(first(variants), WL, WS)
 
     params = _make_params(;
         delays=delays,
@@ -176,7 +149,7 @@ function _ct_from_raw(
 end
 
 function _de_from_raw(
-    channels::Vector{StructuredChannelData};
+    variant::VariantResultData;
     delays::AbstractVector{<:Integer},
     model::AbstractVector{<:Integer},
     WL::Union{Int, Nothing},
@@ -189,22 +162,8 @@ function _de_from_raw(
     out_fn::Union{String, Nothing},
     selected_channels::Vector{Int},
 )::DEResult
-    ch_data = channels[1]
-    n_win = length(ch_data.timepoints)
-
-    ergodicity = Vector{Float64}(undef, n_win)
-    T, t, win_starts, win_ends = _time_axes(
-        channels,
-        derivative_points,
-        TM,
-        sampling_rate,
-        WL,
-        WS,
-    )
-
-    for (wi, tp) in enumerate(ch_data.timepoints)
-        ergodicity[wi] = tp.value
-    end
+    ergodicity = vec(variant.errors)
+    T, t, win_starts, win_ends = _time_axes(variant, WL, WS)
 
     params = _make_params(;
         delays=delays,

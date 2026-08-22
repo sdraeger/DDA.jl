@@ -23,7 +23,6 @@ Aggregated DDA coefficient results from multiple subjects/recordings.
 - `subject_labels::Vector{String}`: Label per subject.
 - `channel_labels::Vector{String}`: Label per channel (or pair).
 - `params::Dict{String,Any}`: Analysis parameters.
-- `variant::String`: Variant abbreviation ("ST" or "CT").
 """
 struct GroupResult
     coefficients::Array{Float64,4}
@@ -31,7 +30,6 @@ struct GroupResult
     subject_labels::Vector{String}
     channel_labels::Vector{String}
     params::Dict{String,Any}
-    variant::String
 end
 
 """
@@ -234,7 +232,6 @@ function _collect_st(results::Vector, labels::Vector{String})::GroupResult
         STResult,
         results,
         labels,
-        "ST",
         n_channels,
         r -> r.channel_labels,
         "Channel",
@@ -246,7 +243,6 @@ function _collect_ct(results::Vector, labels::Vector{String})::GroupResult
         CTResult,
         results,
         labels,
-        "CT",
         n_pairs,
         r -> r.pair_labels,
         "Pair",
@@ -257,7 +253,6 @@ function _collect_coeff_results(
     ::Type{T},
     results::Vector,
     labels::Vector{String},
-    variant::String,
     entity_count::Function,
     entity_labels::Function,
     entity_name::String,
@@ -287,7 +282,7 @@ function _collect_coeff_results(
         errs[si, :, :] = r_typed.errors[:, 1:min_win]
     end
 
-    return GroupResult(coeffs, errs, labels, entity_labels(r1), r1.params, variant)
+    return GroupResult(coeffs, errs, labels, entity_labels(r1), r1.params)
 end
 
 function _collect_de(results::Vector, labels::Vector{String})::DEGroupResult

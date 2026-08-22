@@ -145,7 +145,6 @@ function run_dda_matrix(
                         source,
                         target,
                         model.primary_terms,
-                        model.secondary_terms,
                         model.window_length,
                     ),
                 ) for (target, source) in cd_pairs
@@ -159,7 +158,6 @@ function run_dda_matrix(
                         right,
                         right,
                         model.primary_terms,
-                        model.secondary_terms,
                         model.window_length,
                     ),
                 ) for (left, right) in sy_pairs
@@ -173,7 +171,6 @@ function run_dda_matrix(
                         left,
                         left,
                         model.primary_terms,
-                        model.secondary_terms,
                         model.window_length,
                     ),
                 ) for (left, right) in sy_pairs

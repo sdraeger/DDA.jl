@@ -45,11 +45,10 @@ function _directed_problem(
     primary_channel::Int,
     secondary_channel::Int,
     response_channel::Int,
-    primary_terms::Vector{Vector{Int}},
-    secondary_terms::Vector{Vector{Int}},
+    terms::Vector{Vector{Int}},
     window_length::Int,
 )::Union{RegressionProblem,Nothing}
-    feature_count = length(primary_terms) + length(secondary_terms)
+    feature_count = 2length(terms)
     design = Matrix{Float64}(undef, window_length, feature_count)
     fit_target = Vector{Float64}(undef, window_length)
     residual_target = Vector{Float64}(undef, window_length)
@@ -60,12 +59,12 @@ function _directed_problem(
         isnan(fit_value) && continue
         secondary = Float64[
             _evaluate_term(prepared, secondary_channel, sample, term)
-            for term in secondary_terms
+            for term in terms
         ]
         any(isnan, secondary) && continue
         primary = Float64[
             _evaluate_term(prepared, primary_channel, sample, term)
-            for term in primary_terms
+            for term in terms
         ]
         any(isnan, primary) && continue
         valid_rows += 1

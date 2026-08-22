@@ -74,7 +74,6 @@ function _build_model_spec(;
         window_step,
         maximum(selected_delays),
         terms,
-        deepcopy(terms),
     )
 end
 

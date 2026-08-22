@@ -130,25 +130,36 @@ using DelayDifferentialAnalysis
     end
 
     @testset "raw T, derived t, and full coefficients are preserved" begin
-        channels = [
-            StructuredChannelData(
-                1,
-                [
-                    StructuredTimepoint(10.0, 138.0, [1.0, 2.0, 3.0], 0.1),
-                    StructuredTimepoint(110.0, 238.0, [4.0, 5.0, 6.0], 0.2),
-                ],
-            ),
-            StructuredChannelData(
-                2,
-                [
-                    StructuredTimepoint(10.0, 138.0, [7.0, 8.0, 9.0], 0.3),
-                    StructuredTimepoint(110.0, 238.0, [10.0, 11.0, 12.0], 0.4),
-                ],
-            ),
+        T_matrix = Int64[
+            10 138
+            110 238
         ]
+        t = (T_matrix[:, 1] .+ 1 .+ 3 .+ 12) ./ 500
+        A = [
+            1.0 2.0 3.0 0.1 7.0 8.0 9.0 0.3
+            4.0 5.0 6.0 0.2 10.0 11.0 12.0 0.4
+        ]
+        coefficients = Array{Float64,3}(undef, 2, 2, 3)
+        coefficients[1, 1, :] = [1.0, 2.0, 3.0]
+        coefficients[1, 2, :] = [4.0, 5.0, 6.0]
+        coefficients[2, 1, :] = [7.0, 8.0, 9.0]
+        coefficients[2, 2, :] = [10.0, 11.0, 12.0]
+        errors = [0.1 0.2; 0.3 0.4]
+        variant = DelayDifferentialAnalysis.Runner.VariantResultData(
+            "ST",
+            "Single Timeseries",
+            A,
+            coefficients,
+            errors,
+            T_matrix,
+            t,
+            [0, 100],
+            [128, 228],
+            ["ch1", "ch2"],
+        )
 
         result = DelayDifferentialAnalysis.API._st_from_raw(
-            channels,
+            variant,
             ["ch1", "ch2"];
             delays=[7, 10],
             model=[1, 2, 10],

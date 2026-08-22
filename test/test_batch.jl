@@ -9,19 +9,18 @@ using DelayDifferentialAnalysis
         ch_labels = ["ch1", "ch2"]
         params = Dict{String,Any}("WL" => 200)
 
-        g = GroupResult(coeffs, errs, labels, ch_labels, params, "ST")
+        g = GroupResult(coeffs, errs, labels, ch_labels, params)
 
         @test n_subjects(g) == 3
         @test n_channels(g) == 2
         @test n_windows(g) == 5
         @test n_coeffs(g) == 3
-        @test g.variant == "ST"
     end
 
     @testset "mean_over_windows" begin
         coeffs = ones(2, 3, 4, 2)  # all ones
         errs = zeros(2, 3, 4)
-        g = GroupResult(coeffs, errs, ["s1", "s2"], ["c1", "c2", "c3"], Dict{String,Any}(), "ST")
+        g = GroupResult(coeffs, errs, ["s1", "s2"], ["c1", "c2", "c3"], Dict{String,Any}())
 
         m = mean_over_windows(g)
         @test size(m) == (2, 3, 2)
@@ -40,7 +39,6 @@ using DelayDifferentialAnalysis
         @test n_channels(g) == 2
         @test n_windows(g) == 5
         @test n_coeffs(g) == n_k
-        @test g.variant == "ST"
         @test g.subject_labels == ["s1", "s2", "s3"]
     end
 
@@ -63,7 +61,6 @@ using DelayDifferentialAnalysis
 
         @test n_subjects(g) == 2
         @test n_channels(g) == 3  # pairs
-        @test g.variant == "CT"
     end
 
     @testset "collect_results DEResult" begin
