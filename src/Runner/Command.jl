@@ -70,7 +70,7 @@ function build_command(runner::DDARunner, request::DDARequest, output_base::Stri
     # Time bounds
     if request.time_range !== nothing
         tr = request.time_range
-        push!(args, "-StartEnd", string(Int(tr.start)), string(Int(tr.stop)))
+        push!(args, "-StartEnd", string(tr.start), string(tr.stop))
     end
 
     sampling_rate_args = _sampling_rate_args(request.sampling_rate)

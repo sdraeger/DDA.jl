@@ -7,12 +7,22 @@ function _resolve_output_base(request::DDARequest)::Tuple{String, Bool}
     return (joinpath(tempdir(), "dda_output_$(analysis_id)"), true)
 end
 
+function _reject_request_keyword_conflict(; file_path, channels, flavors, kwargs...)
+    isempty(kwargs) || error(
+        "Pass either `request` or individual analysis keywords, not both; " *
+        "unexpected keyword(s): $(join(string.(first.(collect(pairs(kwargs)))), ", "))",
+    )
+    (file_path === nothing && channels === nothing && flavors === nothing) || error(
+        "Pass either `request` or analysis keywords (`file_path`, `channels`, `flavors`), not both",
+    )
+    return nothing
+end
+
 # =============================================================================
 # STRUCTURED ANALYSIS (new path — returns per-variant structured data)
 # =============================================================================
 
-function _run_command(runner::DDARunner, request::DDARequest, output_base::String)
-    cmd = build_command(runner, request, output_base)
+function _run_command(cmd::Cmd)
     try
         run(cmd)
     catch e
@@ -21,25 +31,25 @@ function _run_command(runner::DDARunner, request::DDARequest, output_base::Strin
     return nothing
 end
 
-function _logical_command_parts(
-    runner::DDARunner,
-    request::DDARequest,
-    output_base::String,
-)::Vector{String}
-    parts = collect(build_command(runner, request, output_base))
+function _logical_command_parts(cmd::Cmd)::Vector{String}
+    parts = collect(cmd)
     if REQUIRES_SHELL_WRAPPER && !Sys.iswindows() && length(parts) >= 2 && parts[1] == SHELL_COMMAND
         return parts[2:end]
     end
     return parts
 end
 
-function _write_logical_command_info(
+function _logical_command_parts(
     runner::DDARunner,
     request::DDARequest,
     output_base::String,
-)
+)::Vector{String}
+    return _logical_command_parts(build_command(runner, request, output_base))
+end
+
+function _write_logical_command_info(cmd::Cmd, output_base::String)
     open("$(output_base).info", "w") do io
-        println(io, join(_logical_command_parts(runner, request, output_base), " "))
+        println(io, join(_logical_command_parts(cmd), " "))
     end
     return nothing
 end
@@ -50,36 +60,22 @@ function _info_file_missing_or_empty(output_base::String)::Bool
     return isempty(strip(read(info_file, String)))
 end
 
-function _ensure_logical_command_info(
-    runner::DDARunner,
-    request::DDARequest,
-    output_base::String;
-    overwrite::Bool=false,
-)
+function _ensure_logical_command_info(cmd::Cmd, output_base::String; overwrite::Bool=false)
     if overwrite || _info_file_missing_or_empty(output_base)
-        _write_logical_command_info(runner, request, output_base)
+        _write_logical_command_info(cmd, output_base)
     end
     return nothing
-end
-
-function _finalize_output_info(
-    runner::DDARunner,
-    request::DDARequest,
-    output_base::String,
-    cleanup_output::Bool,
-)
-    cleanup_output && return nothing
-    return _ensure_logical_command_info(runner, request, output_base)
 end
 
 function _with_DDA_output(operation::Function, runner::DDARunner, request::DDARequest)
     isfile(request.file_path) || error("Input file not found: $(request.file_path)")
     output_base, cleanup_output = _resolve_output_base(request)
+    cmd = build_command(runner, request, output_base)
     try
-        _run_command(runner, request, output_base)
+        _run_command(cmd)
         return operation(output_base)
     finally
-        _finalize_output_info(runner, request, output_base, cleanup_output)
+        cleanup_output || _ensure_logical_command_info(cmd, output_base)
         cleanup_output && cleanup_temp_files(output_base, request.variants)
     end
 end
@@ -102,6 +98,12 @@ function _parse_structured_outputs(
             results[variant_abbrev] = channels
         end
     end
+
+    missing_variants = [v for v in variants if !haskey(results, v)]
+    isempty(missing_variants) || error(
+        "No DDA output found for requested variant(s): $(join(missing_variants, ", ")). " *
+        "The binary may have failed or produced no output for them.",
+    )
     return results
 end
 
@@ -127,6 +129,7 @@ function run_analysis_structured(;
     kwargs...,
 )::Dict{String, Vector{StructuredChannelData}}
     if request !== nothing
+        _reject_request_keyword_conflict(; file_path=file_path, channels=channels, flavors=flavors, kwargs...)
         runner_obj = something(runner, DDARunner(; binary_path=binary_path))
         return _run_analysis_structured(runner_obj, request)
     end
@@ -164,7 +167,7 @@ function _run_DDA(runner::DDARunner, request::DDARequest)::DDAResult
         analysis_id, request.file_path, channel_labels,
         primary.T, primary.t, primary.A, variant_results,
         request.window_params, request.delay_params,
-        string(Dates.now())
+        Dates.now()
     )
 end
 
@@ -194,6 +197,7 @@ function run_DDA(;
     kwargs...,
 )::Union{DDAResult, Nothing}
     if request !== nothing
+        _reject_request_keyword_conflict(; file_path=file_path, channels=channels, flavors=flavors, kwargs...)
         runner_obj = something(runner, DDARunner(; binary_path=binary_path))
         if load_results
             return _run_DDA(runner_obj, request)
