@@ -9,14 +9,13 @@ module Runner
 
 import UUIDs
 import Dates
-using ..Flavors
+using ..Flavors: SELECT_MASK_SIZE, DEFAULT_DELAYS, FileType, VariantMetadata,
+    get_variant_by_abbrev, generate_select_mask, parse_select_mask,
+    requires_ct_params, Individual, Pairs, DirectedPairs,
+    require_binary, REQUIRES_SHELL_WRAPPER, SHELL_COMMAND,
+    EDF, ASCII, get_flag, file_type_from_extension
 using ..DDADefaults
 using ..ModelEncoding: model_matrix_to_encoding
-
-export DDARequest, DDAResult, VariantResultData
-export DDARunner, run_DDA
-export StructuredTimepoint, StructuredChannelData
-export run_analysis_structured, parse_output_file_structured
 
 include("Runner/Types.jl")
 include("Runner/Request.jl")

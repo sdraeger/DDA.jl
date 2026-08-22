@@ -3,10 +3,9 @@ module API
 
 using Printf
 using ..DDADefaults
-using ..Results
+using ..Results: STResult, CTResult, DEResult
 using ..Runner
-
-export run_st, run_ct, run_de
+using ..Runner: StructuredChannelData, run_analysis_structured
 
 include("API/Helpers.jl")
 include("API/Conversions.jl")

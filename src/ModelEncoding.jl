@@ -7,9 +7,6 @@ module ModelEncoding
 
 using Printf
 
-export generate_monomials, model_matrix_to_encoding, monomial_to_text, monomial_to_latex
-export decode_model_encoding, visualize_model_space
-
 """
     generate_monomials(num_delays, polynomial_order) -> Vector{NTuple{N,Int}}
 

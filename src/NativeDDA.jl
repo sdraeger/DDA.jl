@@ -3,9 +3,9 @@ module NativeDDA
 
 using LinearAlgebra
 using Statistics
+using ..DDADefaults
+using ..OptionalDeps
 using ..ModelEncoding: generate_monomials
-
-export NativeDDAResult, NativeFlavorResult, flavor_result, run_dda_matrix
 
 include("NativeDDA/Types.jl")
 include("NativeDDA/Preparation.jl")
