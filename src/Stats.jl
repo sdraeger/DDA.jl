@@ -3,10 +3,8 @@ module Stats
 
 using Statistics
 using Random
-using ..Results
-
-export PermutationResult, EffectSizeResult, WindowComparisonResult
-export permutation_test, compute_effect_size, compare_windows
+using HypothesisTests: UnequalVarianceTTest, MannWhitneyUTest, pvalue
+using ..Results: STResult, CTResult, n_channels, n_pairs, n_coeffs
 
 # =============================================================================
 # Result Types
@@ -277,10 +275,10 @@ function compare_windows(
 end
 
 # =============================================================================
-# Built-in statistical tests (no external deps)
+# Built-in statistical tests
 # =============================================================================
 
-"""Welch's t-test for unequal variances. Returns (t_stat, p_value)."""
+"""Welch's unequal-variance t-test. Returns `(t_stat, p_value)`."""
 function _welch_ttest(x::Vector{Float64}, y::Vector{Float64})::Tuple{Float64,Float64}
     nx, ny = length(x), length(y)
     (nx < 2 || ny < 2) && return (0.0, 1.0)
@@ -293,19 +291,10 @@ function _welch_ttest(x::Vector{Float64}, y::Vector{Float64})::Tuple{Float64,Flo
     se == 0.0 && return (0.0, 1.0)
 
     t_stat = (mx - my) / se
-
-    # Welch–Satterthwaite degrees of freedom
-    num = (vx / nx + vy / ny)^2
-    denom = (vx / nx)^2 / (nx - 1) + (vy / ny)^2 / (ny - 1)
-    denom == 0.0 && return (t_stat, 1.0)
-    df = num / denom
-
-    # Approximate two-sided p-value using Student's t CDF approximation
-    p = _t_pvalue(abs(t_stat), df)
-    return (t_stat, p)
+    return t_stat, pvalue(UnequalVarianceTTest(x, y))
 end
 
-"""Wilcoxon rank-sum test (Mann-Whitney U). Returns (U_stat, p_value)."""
+"""Wilcoxon rank-sum (Mann-Whitney U). Returns `(U_stat, p_value)`."""
 function _ranksum(x::Vector{Float64}, y::Vector{Float64})::Tuple{Float64,Float64}
     nx, ny = length(x), length(y)
     (nx == 0 || ny == 0) && return (0.0, 1.0)
@@ -328,134 +317,14 @@ function _ranksum(x::Vector{Float64}, y::Vector{Float64})::Tuple{Float64,Float64
         i = j + 1
     end
 
-    rank_sum_x = sum(ranks[1:nx])
-    u_x = rank_sum_x - nx * (nx + 1) / 2
+    u_stat = sum(ranks[1:nx]) - nx * (nx + 1) / 2
 
-    # Normal approximation for large samples
-    mu = nx * ny / 2.0
-    sigma = sqrt(nx * ny * (n + 1) / 12.0)
-    sigma == 0.0 && return (u_x, 1.0)
-
-    z = (u_x - mu) / sigma
-    p = 2.0 * _normal_cdf(-abs(z))
-    return (u_x, p)
-end
-
-"""Approximate two-sided p-value for Student's t distribution."""
-function _t_pvalue(t::Float64, df::Float64)::Float64
-    # Use normal approximation for large df, otherwise Abramowitz & Stegun approx
-    if df > 100
-        return 2.0 * _normal_cdf(-t)
+    p = try
+        pvalue(MannWhitneyUTest(x, y))
+    catch
+        1.0
     end
-    x = df / (df + t^2)
-    # Regularized incomplete beta function approximation
-    p = _betainc(df / 2, 0.5, x)
-    return p
-end
-
-"""Standard normal CDF using Abramowitz & Stegun approximation (max error ~1.5e-7)."""
-function _normal_cdf(x::Float64)::Float64
-    # Rational approximation for Phi(x)
-    if x < -8.0
-        return 0.0
-    elseif x > 8.0
-        return 1.0
-    end
-    # Use symmetry for negative x
-    if x < 0.0
-        return 1.0 - _normal_cdf(-x)
-    end
-    # Abramowitz & Stegun 26.2.17
-    b0 = 0.2316419
-    b1 = 0.319381530
-    b2 = -0.356563782
-    b3 = 1.781477937
-    b4 = -1.821255978
-    b5 = 1.330274429
-    t = 1.0 / (1.0 + b0 * x)
-    phi = exp(-0.5 * x * x) / sqrt(2.0 * pi)
-    return 1.0 - phi * t * (b1 + t * (b2 + t * (b3 + t * (b4 + t * b5))))
-end
-
-"""Log-gamma via Stirling's approximation (Lanczos, g=7, n=9). No external deps."""
-function _lgamma(x::Float64)::Float64
-    if x <= 0.0
-        return Inf
-    end
-    # Lanczos coefficients (g=7, n=9)
-    c = (
-        0.99999999999980993,
-        676.5203681218851,
-        -1259.1392167224028,
-        771.32342877765313,
-        -176.61502916214059,
-        12.507343278686905,
-        -0.13857109526572012,
-        9.9843695780195716e-6,
-        1.5056327351493116e-7,
-    )
-    if x < 0.5
-        return log(pi / sin(pi * x)) - _lgamma(1.0 - x)
-    end
-    x -= 1.0
-    ag = c[1]
-    for i in 2:9
-        ag += c[i] / (x + i - 1)
-    end
-    t = x + 7.5
-    return 0.5 * log(2.0 * pi) + (x + 0.5) * log(t) - t + log(ag)
-end
-
-"""
-Regularized incomplete beta function I_x(a, b) via continued fraction.
-Used for computing t-distribution p-values.
-"""
-function _betainc(a::Float64, b::Float64, x::Float64)::Float64
-    (x <= 0.0) && return 0.0
-    (x >= 1.0) && return 1.0
-
-    # Use symmetry relation when x > (a+1)/(a+b+2)
-    if x > (a + 1) / (a + b + 2)
-        return 1.0 - _betainc(b, a, 1.0 - x)
-    end
-
-    # Lentz's continued fraction
-    lbeta = _lgamma(a) + _lgamma(b) - _lgamma(a + b)
-    front = exp(a * log(x) + b * log(1.0 - x) - lbeta) / a
-
-    f = 1.0
-    c = 1.0
-    d = 1.0 - (a + b) * x / (a + 1)
-    if abs(d) < 1e-30
-        d = 1e-30
-    end
-    d = 1.0 / d
-    f = d
-
-    for m in 1:200
-        # Even step
-        num = m * (b - m) * x / ((a + 2m - 1) * (a + 2m))
-        d = 1.0 + num * d
-        abs(d) < 1e-30 && (d = 1e-30)
-        c = 1.0 + num / c
-        abs(c) < 1e-30 && (c = 1e-30)
-        d = 1.0 / d
-        f *= c * d
-
-        # Odd step
-        num = -(a + m) * (a + b + m) * x / ((a + 2m) * (a + 2m + 1))
-        d = 1.0 + num * d
-        abs(d) < 1e-30 && (d = 1e-30)
-        c = 1.0 + num / c
-        abs(c) < 1e-30 && (c = 1e-30)
-        d = 1.0 / d
-        delta = c * d
-        f *= delta
-
-        abs(delta - 1.0) < 1e-10 && break
-    end
-
-    return front * f
+    return (u_stat, p)
 end
 
 end # module Stats
