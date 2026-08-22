@@ -2,13 +2,11 @@
 module Batch
 
 using Statistics
-using ..Results
-using ..API
+using ..Results: STResult, CTResult, DEResult
+import ..Results: n_channels, n_windows, n_coeffs, n_pairs
+using ..API: run_st, run_ct, run_de
 using ..DDADefaults
 using ..Runner
-
-export GroupResult, run_batch, collect_results
-export n_subjects, mean_over_windows
 
 # =============================================================================
 # GroupResult
@@ -17,7 +15,7 @@ export n_subjects, mean_over_windows
 """
     GroupResult
 
-Aggregated DDA results from multiple subjects/recordings.
+Aggregated DDA coefficient results from multiple subjects/recordings.
 
 # Fields
 - `coefficients::Array{Float64,4}`: Shape `(n_subjects, n_channels, n_windows, n_coeffs)`.
@@ -25,7 +23,7 @@ Aggregated DDA results from multiple subjects/recordings.
 - `subject_labels::Vector{String}`: Label per subject.
 - `channel_labels::Vector{String}`: Label per channel (or pair).
 - `params::Dict{String,Any}`: Analysis parameters.
-- `variant::String`: Variant abbreviation ("ST", "CT", or "DE").
+- `variant::String`: Variant abbreviation ("ST" or "CT").
 """
 struct GroupResult
     coefficients::Array{Float64,4}
@@ -36,17 +34,40 @@ struct GroupResult
     variant::String
 end
 
+"""
+    DEGroupResult
+
+Aggregated dynamical-ergodicity results from multiple subjects/recordings,
+returned by [`collect_results`](@ref) when collecting `DEResult`s.
+
+# Fields
+- `ergodicity::Matrix{Float64}`: Shape `(n_subjects, n_windows)`.
+- `subject_labels::Vector{String}`: Label per subject.
+- `params::Dict{String,Any}`: Analysis parameters.
+"""
+struct DEGroupResult
+    ergodicity::Matrix{Float64}
+    subject_labels::Vector{String}
+    params::Dict{String,Any}
+end
+
 """Number of subjects."""
 n_subjects(g::GroupResult)::Int = size(g.coefficients, 1)
 
+"""Number of subjects."""
+n_subjects(g::DEGroupResult)::Int = size(g.ergodicity, 1)
+
 """Number of channels (or pairs)."""
-Results.n_channels(g::GroupResult)::Int = size(g.coefficients, 2)
+n_channels(g::GroupResult)::Int = size(g.coefficients, 2)
 
 """Number of windows (truncated to minimum across subjects)."""
-Results.n_windows(g::GroupResult)::Int = size(g.coefficients, 3)
+n_windows(g::GroupResult)::Int = size(g.coefficients, 3)
+
+"""Number of windows (truncated to minimum across subjects)."""
+n_windows(g::DEGroupResult)::Int = size(g.ergodicity, 2)
 
 """Number of coefficients."""
-Results.n_coeffs(g::GroupResult)::Int = size(g.coefficients, 4)
+n_coeffs(g::GroupResult)::Int = size(g.coefficients, 4)
 
 """
     mean_over_windows(g::GroupResult) -> Array{Float64,3}
@@ -59,6 +80,17 @@ function mean_over_windows(g::GroupResult)::Array{Float64,3}
     return dropdims(mean(g.coefficients; dims=3); dims=3)
 end
 
+"""
+    mean_over_windows(g::DEGroupResult) -> Vector{Float64}
+
+Average ergodicity per subject across the window dimension.
+
+Returns shape `(n_subjects,)`.
+"""
+function mean_over_windows(g::DEGroupResult)::Vector{Float64}
+    return vec(mean(g.ergodicity; dims=2))
+end
+
 # =============================================================================
 # run_batch
 # =============================================================================
@@ -69,9 +101,8 @@ end
 Process multiple ASCII files through DDA.
 
 # Arguments
-- `files::Vector{String}`: Paths to ASCII data files.
+- `files::AbstractVector{<:AbstractString}`: Paths to ASCII data files.
 - `variant::String="st"`: Analysis variant ("st", "ct", or "de").
-- `sfreq::Float64=1.0`: Sampling frequency.
 - `delays`, `model`, `WL`, `WS`: Standard DDA parameters.
 - `channel_labels`: Optional channel labels.
 - `binary_path`: Explicit binary path.
@@ -82,9 +113,8 @@ Process multiple ASCII files through DDA.
 A list of result objects, one per file.
 """
 function run_batch(
-    files::Vector{String};
+    files::AbstractVector{<:AbstractString};
     variant::String="st",
-    sfreq::Float64=1.0,
     delays::Vector{Int}=collect(DDADefaults.DELAYS),
     model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int,Nothing}=DDADefaults.WL,
@@ -107,7 +137,6 @@ function run_batch(
 
     # Build kwargs for run function
     run_kwargs = Dict{Symbol,Any}(
-        :sfreq => sfreq,
         :WL => WL,
         :WS => WS,
     )
@@ -165,23 +194,22 @@ end
 # =============================================================================
 
 """
-    collect_results(results; labels=nothing) -> GroupResult
+    collect_results(results; labels=nothing) -> Union{GroupResult, DEGroupResult}
 
-Stack multiple DDA results into a single `GroupResult` with a 4D coefficient array.
+Stack multiple DDA results into a single aggregate. `STResult`s and `CTResult`s
+produce a [`GroupResult`](@ref) with a 4D coefficient array; `DEResult`s produce
+a [`DEGroupResult`](@ref).
 
 Windows are truncated to the minimum count across subjects.
 
 # Arguments
 - `results`: List of `STResult`, `CTResult`, or `DEResult` (all same type).
 - `labels::Union{Vector{String},Nothing}`: Subject labels (defaults to "subj_1", ...).
-
-# Returns
-A [`GroupResult`](@ref) with coefficients shape `(n_subjects, n_channels, min_windows, n_coeffs)`.
 """
 function collect_results(
     results::Vector;
     labels::Union{Vector{String},Nothing}=nothing,
-)::GroupResult
+)::Union{GroupResult, DEGroupResult}
     isempty(results) && error("results must be non-empty")
     T = typeof(results[1])
     all(r -> typeof(r) == T, results) || error("All results must be the same type")
@@ -262,7 +290,7 @@ function _collect_coeff_results(
     return GroupResult(coeffs, errs, labels, entity_labels(r1), r1.params, variant)
 end
 
-function _collect_de(results::Vector, labels::Vector{String})::GroupResult
+function _collect_de(results::Vector, labels::Vector{String})::DEGroupResult
     n_subj = length(results)
     min_win = minimum(n_windows(r)::Int for r in results)
 
@@ -270,21 +298,12 @@ function _collect_de(results::Vector, labels::Vector{String})::GroupResult
         @warn "Window counts vary across subjects; truncating to $min_win"
     end
 
-    # DE: 1 "channel", 0 coefficients — store ergodicity in a dummy axis
-    coeffs = Array{Float64,4}(undef, n_subj, 1, min_win, 1)
-    errs = Array{Float64,3}(undef, n_subj, 1, min_win)
-
+    ergodicity = Matrix{Float64}(undef, n_subj, min_win)
     for (si, r) in enumerate(results)
-        r_typed = r::DEResult
-        for w in 1:min_win
-            coeffs[si, 1, w, 1] = r_typed.ergodicity[w]
-            errs[si, 1, w] = 0.0
-        end
+        ergodicity[si, :] = (r::DEResult).ergodicity[1:min_win]
     end
 
-    r1 = results[1]::DEResult
-    params = r1.params
-    return GroupResult(coeffs, errs, labels, ["ergodicity"], params, "DE")
+    return DEGroupResult(ergodicity, labels, (results[1]::DEResult).params)
 end
 
 end # module Batch

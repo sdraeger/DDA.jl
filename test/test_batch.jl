@@ -72,9 +72,12 @@ using DelayDifferentialAnalysis
 
         g = collect_results([r1, r2])
 
+        @test g isa DEGroupResult
         @test n_subjects(g) == 2
         @test n_windows(g) == 6  # truncated
-        @test g.variant == "DE"
+        @test size(g.ergodicity) == (2, 6)
+        @test g.ergodicity[1, :] == r1.ergodicity[1:6]
+        @test g.ergodicity[2, :] == r2.ergodicity[1:6]
     end
 
     @testset "collect_results default labels" begin
