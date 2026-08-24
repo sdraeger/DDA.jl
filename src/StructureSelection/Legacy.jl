@@ -192,41 +192,40 @@ function _structure_selection_resolved(
         end
     else
         for model in _ordered_candidates(models, randomize, rng)
-            nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
-            tau_rows = _tau_rows(delay_spec.values, nr, sym)
-            tau_path = _tau_file_path(tau_prefix, nr, sym, tau_file_suffix)
-            executable_model = _model_for_tau_file(
+            candidate = _pool_candidate(
                 model,
-                P_DDA;
+                P_DDA,
+                delay_spec.values;
                 nr_delays=nr_delays,
                 order=model_order,
-                nr_tau=nr,
+                tau_prefix=tau_prefix,
+                output_root=output_root,
+                tau_file_suffix=tau_file_suffix,
+                trial_prefix=_trial_prefix,
             )
-            model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
-            out_fn = _trial_out_fn(output_root, model_id, nothing, _trial_prefix)
-            result = _run_or_reuse_pool_output(out_fn, length(tau_rows)) do
-                _write_tau_file(tau_path, tau_rows)
+            result = _run_or_reuse_pool_output(candidate.out_fn, length(candidate.tau_rows)) do
+                _write_tau_file(candidate.tau_path, candidate.tau_rows)
                 run_once(;
                     file_path=file_path,
                     channels=channels,
                     flavors=["ST"],
                     binary_path=binary_path,
-                    model=executable_model,
-                    delays=first(tau_rows),
+                    model=candidate.executable_model,
+                    delays=first(candidate.tau_rows),
                     derivative_points=Int(derivative_points),
                     order=model_order,
-                    nr_tau=nr,
-                    tau_file=tau_path,
+                    nr_tau=candidate.nr,
+                    tau_file=candidate.tau_path,
                     WL=WL,
                     WS=WS,
                     input_format=input_format,
-                    out_fn=out_fn,
+                    out_fn=candidate.out_fn,
                     kwargs...,
                 )
             end
             result === nothing && continue
-            best_delays, score = _best_tau_row_score(result, metric, tau_rows)
-            trial = StructureSelectionTrial(model, best_delays, score, result, out_fn, tau_path)
+            best_delays, score = _best_tau_row_score(result, metric, candidate.tau_rows)
+            trial = StructureSelectionTrial(model, best_delays, score, result, candidate.out_fn, candidate.tau_path)
             push!(trials, trial)
             if best_trial === nothing || trial.score < best_trial.score
                 best_trial = trial

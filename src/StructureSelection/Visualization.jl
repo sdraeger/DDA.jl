@@ -23,20 +23,27 @@ function _two_delay_plot_candidates(
     candidates = []
     for model_number in model_numbers
         model = _model_from_MOD_row(run.MOD, model_number)
-        nr, sym = _model_symmetry(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
-        nr == 2 || continue
-        tau_path = _tau_file_path(joinpath(run.prefix, "TAU_ALL__"), nr, sym, run.tau_file_suffix)
-        isfile(tau_path) || continue
-        tau_rows = _read_tau_rows(tau_path)
-        all(row -> length(row) == 2, tau_rows) || error("Expected delay pairs in $tau_path")
-        model_id = _model_filename_id(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
-        out_fn = _trial_out_fn(run.prefix, model_id, nothing, run.trial_prefix)
-        series = _read_structure_selection_series("$(out_fn)_ST", length(model) + 1, length(tau_rows))
+        candidate = _pool_candidate(
+            model,
+            P_DDA,
+            run.delays;
+            nr_delays=run.nr_delays,
+            order=run.DDAorder,
+            tau_prefix=joinpath(run.prefix, "TAU_ALL__"),
+            output_root=run.prefix,
+            tau_file_suffix=run.tau_file_suffix,
+            trial_prefix=run.trial_prefix,
+        )
+        candidate.nr == 2 || continue
+        isfile(candidate.tau_path) || continue
+        tau_rows = _read_tau_rows(candidate.tau_path)
+        all(row -> length(row) == 2, tau_rows) || error("Expected delay pairs in $(candidate.tau_path)")
+        series = _read_structure_selection_series("$(candidate.out_fn)_ST", length(model) + 1, length(tau_rows))
         series === nothing && continue
         positions = _channel_positions(run, channels, size(series.errors, 1))
         push!(candidates, (
             model_number=Int(model_number),
-            symmetry=sym,
+            symmetry=candidate.sym,
             tau_rows=tau_rows,
             T=vec(series.T[:, 1]),
             errors=series.errors[positions, :, :],

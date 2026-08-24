@@ -162,7 +162,42 @@ function _model_indices(model, P_DDA::AbstractMatrix{<:Integer}; nr_delays::Inte
             polynomial_order=Int(order),
         )
     end
-    error("Model candidates must be integer vectors or matrices")
+    error("Model candidates must be integer vectors or integer matrices")
+end
+
+"""
+    _pool_candidate(model, P_DDA, delay_pool; nr_delays, order, tau_prefix,
+                    output_root, tau_file_suffix, trial_prefix)
+
+Build everything needed to execute one pool-mode candidate: the original
+model, the binary-facing model remapped to the tau file's delay numbering,
+its generated delay rows with their on-disk tau file, and the output base.
+Shared by compute, select, plotting, and the legacy one-shot entry point.
+"""
+function _pool_candidate(
+    model,
+    P_DDA::AbstractMatrix{<:Integer},
+    delay_pool::AbstractVector{<:Integer};
+    nr_delays::Integer,
+    order::Integer,
+    tau_prefix::AbstractString,
+    output_root::AbstractString,
+    tau_file_suffix::AbstractString,
+    trial_prefix::AbstractString,
+)
+    nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=order)
+    tau_rows = _tau_rows(delay_pool, nr, sym)
+    tau_path = _tau_file_path(tau_prefix, nr, sym, tau_file_suffix)
+    executable_model = _model_for_tau_file(
+        model,
+        P_DDA;
+        nr_delays=nr_delays,
+        order=order,
+        nr_tau=nr,
+    )
+    model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=order)
+    out_fn = _trial_out_fn(output_root, model_id, nothing, trial_prefix)
+    return (; model, executable_model, nr, sym, tau_rows, tau_path, out_fn)
 end
 
 function _tau_rows(delay_pool::AbstractVector{<:Integer}, nr::Integer, sym::Integer)::Vector{Vector{Int}}

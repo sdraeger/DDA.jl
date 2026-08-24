@@ -53,25 +53,18 @@ function _structure_selection_compute(
 
     candidates = map(_ordered_candidates(model_numbers, randomize, rng)) do model_number
         model = _model_from_MOD_row(MOD_matrix, model_number)
-        nr, sym = _model_symmetry(model, P_DDA; nr_delays=nr_delays, order=model_order)
-        tau_rows = _tau_rows(delay_spec.values, nr, sym)
-        tau_path = _tau_file_path(tau_prefix, nr, sym, tau_file_suffix)
-        executable_model = _model_for_tau_file(
+        candidate = _pool_candidate(
             model,
-            P_DDA;
+            P_DDA,
+            delay_spec.values;
             nr_delays=nr_delays,
             order=model_order,
-            nr_tau=nr,
+            tau_prefix=tau_prefix,
+            output_root=output_root,
+            tau_file_suffix=tau_file_suffix,
+            trial_prefix=_trial_prefix,
         )
-        model_id = _model_filename_id(model, P_DDA; nr_delays=nr_delays, order=model_order)
-        out_fn = _trial_out_fn(output_root, model_id, nothing, _trial_prefix)
-        return (;
-            model=executable_model,
-            nr,
-            tau_rows,
-            tau_path,
-            out_fn,
-        )
+        return merge(candidate, (model_number=model_number,))
     end
 
     for candidate in candidates
@@ -85,7 +78,7 @@ function _structure_selection_compute(
                 channels=channel_list,
                 flavors=["ST"],
                 binary_path=binary_path,
-                model=candidate.model,
+                model=candidate.executable_model,
                 delays=first(candidate.tau_rows),
                 derivative_points=Int(derivative_points),
                 order=model_order,
@@ -160,13 +153,20 @@ function _structure_selection_select_joint(
 
     for model_number in model_numbers
         model = _model_from_MOD_row(run.MOD, model_number)
-        nr, sym = _model_symmetry(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
-        tau_rows = _tau_rows(run.delays, nr, sym)
-        tau_path = _tau_file_path(joinpath(run.prefix, "TAU_ALL__"), nr, sym, run.tau_file_suffix)
-        isfile(tau_path) || continue
-        tau_rows = _read_tau_rows(tau_path)
-        model_id = _model_filename_id(model, P_DDA; nr_delays=run.nr_delays, order=run.DDAorder)
-        out_fn = _trial_out_fn(run.prefix, model_id, nothing, run.trial_prefix)
+        candidate = _pool_candidate(
+            model,
+            P_DDA,
+            run.delays;
+            nr_delays=run.nr_delays,
+            order=run.DDAorder,
+            tau_prefix=joinpath(run.prefix, "TAU_ALL__"),
+            output_root=run.prefix,
+            tau_file_suffix=run.tau_file_suffix,
+            trial_prefix=run.trial_prefix,
+        )
+        isfile(candidate.tau_path) || continue
+        tau_rows = _read_tau_rows(candidate.tau_path)
+        out_fn = candidate.out_fn
         st_path = "$(out_fn)_ST"
         errors = _read_structure_selection_errors(st_path, length(model) + 1, length(tau_rows))
         errors === nothing && continue
@@ -174,7 +174,7 @@ function _structure_selection_select_joint(
         scores = _score_structure_error_rows(errors, positions, metric)
         best_idx = argmin(scores)
         result = (variant_results=[(variant_id="ST", errors=errors)],)
-        trial = StructureSelectionTrial(model, Int[tau_rows[best_idx]...], scores[best_idx], result, out_fn, tau_path)
+        trial = StructureSelectionTrial(model, Int[tau_rows[best_idx]...], scores[best_idx], result, out_fn, candidate.tau_path)
         push!(trials, trial)
         if best_trial === nothing || trial.score < best_trial.score
             best_trial = trial

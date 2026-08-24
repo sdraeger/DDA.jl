@@ -83,6 +83,14 @@ using DelayDifferentialAnalysis
                 "structure_selection_01",
                 "structure_selection_03",
             ]
+            # The binary must receive the model re-encoded for the tau file's own
+            # delay numbering, not the MOD-space indices. MOD row 2 is `[3]` in
+            # nr_delays=2 space but `[2]` once remapped for nr_tau=1.
+            by_out_fn = Dict(basename(call[:out_fn]) => call for call in calls)
+            @test by_out_fn["structure_selection_01"][:model] == [1]
+            @test by_out_fn["structure_selection_01"][:nr_tau] == 1
+            @test by_out_fn["structure_selection_03"][:model] == [2]
+            @test by_out_fn["structure_selection_03"][:nr_tau] == 1
             @test isfile(joinpath(prefix, "TAU_ALL__1_0"))
             @test isfile(joinpath(prefix, "structure_selection.toml"))
 
