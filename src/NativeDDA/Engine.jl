@@ -30,6 +30,65 @@ function run_dda_matrix(
     nr_exclude::Int=10,
     derivative_step::Int=1,
 )::NativeDDAResult
+    ctx = _dda_context(
+        samples;
+        device=device,
+        channels=channels,
+        flavors=flavors,
+        window_length=window_length,
+        window_step=window_step,
+        delays=delays,
+        model_terms=model_terms,
+        derivative_points=derivative_points,
+        order=order,
+        nr_tau=nr_tau,
+        ct_channel_pairs=ct_channel_pairs,
+        cd_channel_pairs=cd_channel_pairs,
+        ct_window_length=ct_window_length,
+        ct_window_step=ct_window_step,
+        channel_labels=channel_labels,
+        start=start,
+        stop=stop,
+        normalization=normalization,
+        nr_exclude=nr_exclude,
+        derivative_step=derivative_step,
+    )
+    first_window = 1
+    while first_window <= ctx.window_count
+        problems, references = _dda_window_batch(ctx, first_window)
+        solutions = _solve_problems(problems, ctx.device)
+        _dda_unpack!(ctx, solutions, references, first_window)
+        first_window += ctx.windows_per_batch
+    end
+    return _dda_results(ctx)
+end
+
+# Pure code motion from the former monolithic run_dda_matrix: numerics are
+# unchanged; each stage below corresponds one-to-one to the original blocks.
+
+function _dda_context(
+    samples;
+    device,
+    channels,
+    flavors,
+    window_length,
+    window_step,
+    delays,
+    model_terms,
+    derivative_points,
+    order,
+    nr_tau,
+    ct_channel_pairs,
+    cd_channel_pairs,
+    ct_window_length,
+    ct_window_step,
+    channel_labels,
+    start,
+    stop,
+    normalization,
+    nr_exclude,
+    derivative_step,
+)
     data = _validate_samples(samples)
     row_count, channel_count = size(data)
     labels = _normalize_channel_labels(channel_labels, channel_count)
@@ -100,148 +159,187 @@ function run_dda_matrix(
         (enabled_cd ? length(cd_pairs) : 0) +
         (enabled_sy ? 2length(sy_pairs) : 0)
     windows_per_batch = max(1, min(32, div(2048, max(jobs_per_window, 1))))
-    feature_count = length(model.primary_terms)
 
-    for first_window in 1:windows_per_batch:window_count
-        last_window = min(first_window + windows_per_batch - 1, window_count)
-        problems = RegressionProblem[]
-        references = WindowProblemRefs[]
+    return (
+        data=data,
+        device=device,
+        labels=labels,
+        selected_channels=selected_channels,
+        channel_count=channel_count,
+        model=model,
+        bounds_start=bounds_start,
+        window_count=window_count,
+        markers=markers,
+        normalization=String(normalization),
+        nr_exclude=nr_exclude,
+        derivative_step=derivative_step,
+        enabled_st=enabled_st,
+        enabled_ct=enabled_ct,
+        enabled_cd=enabled_cd,
+        enabled_de=enabled_de,
+        enabled_sy=enabled_sy,
+        ct_groups=ct_groups,
+        de_groups=de_groups,
+        cd_pairs=cd_pairs,
+        sy_pairs=sy_pairs,
+        analysis_channels=analysis_channels,
+        windows_per_batch=windows_per_batch,
+        feature_count=length(model.primary_terms),
+        st_matrix=st_matrix,
+        ct_matrix=ct_matrix,
+        cd_matrix=cd_matrix,
+        de_matrix=de_matrix,
+        sy_matrix=sy_matrix,
+    )
+end
 
-        for window in first_window:last_window
-            prepared = _prepare_window(
-                data,
-                bounds_start,
-                model,
-                window,
-                String(normalization),
-                nr_exclude,
-                derivative_step,
-            )
-            st_refs = zeros(Int, channel_count)
-            if enabled_st || enabled_cd || enabled_de
-                for channel in analysis_channels
-                    st_refs[channel] = _push_problem!(
-                        problems,
-                        _group_problem(prepared, [channel], model.primary_terms, model.window_length),
-                    )
-                end
+function _dda_window_batch(ctx, first_window)
+    last_window = min(first_window + ctx.windows_per_batch - 1, ctx.window_count)
+    problems = RegressionProblem[]
+    references = WindowProblemRefs[]
+    model = ctx.model
+
+    for window in first_window:last_window
+        prepared = _prepare_window(
+            ctx.data,
+            ctx.bounds_start,
+            model,
+            window,
+            ctx.normalization,
+            ctx.nr_exclude,
+            ctx.derivative_step,
+        )
+        st_refs = zeros(Int, ctx.channel_count)
+        if ctx.enabled_st || ctx.enabled_cd || ctx.enabled_de
+            for channel in ctx.analysis_channels
+                st_refs[channel] = _push_problem!(
+                    problems,
+                    _group_problem(prepared, [channel], model.primary_terms, model.window_length),
+                )
             end
-            ct_refs = enabled_ct ? Int[
-                _push_problem!(
-                    problems,
-                    _group_problem(prepared, group, model.primary_terms, model.window_length),
-                ) for group in ct_groups
-            ] : Int[]
-            de_refs = enabled_de ? Int[
-                _push_problem!(
-                    problems,
-                    _group_problem(prepared, group, model.primary_terms, model.window_length),
-                ) for group in de_groups
-            ] : Int[]
-            cd_refs = enabled_cd ? Int[
-                _push_problem!(
-                    problems,
-                    _directed_problem(
-                        prepared,
-                        target,
-                        source,
-                        target,
-                        model.primary_terms,
-                        model.window_length,
-                    ),
-                ) for (target, source) in cd_pairs
-            ] : Int[]
-            sy_forward = enabled_sy ? Int[
-                _push_problem!(
-                    problems,
-                    _directed_problem(
-                        prepared,
-                        left,
-                        right,
-                        right,
-                        model.primary_terms,
-                        model.window_length,
-                    ),
-                ) for (left, right) in sy_pairs
-            ] : Int[]
-            sy_reverse = enabled_sy ? Int[
-                _push_problem!(
-                    problems,
-                    _directed_problem(
-                        prepared,
-                        right,
-                        left,
-                        left,
-                        model.primary_terms,
-                        model.window_length,
-                    ),
-                ) for (left, right) in sy_pairs
-            ] : Int[]
-            push!(references, WindowProblemRefs(st_refs, ct_refs, de_refs, cd_refs, sy_forward, sy_reverse))
         end
+        ct_refs = ctx.enabled_ct ? Int[
+            _push_problem!(
+                problems,
+                _group_problem(prepared, group, model.primary_terms, model.window_length),
+            ) for group in ctx.ct_groups
+        ] : Int[]
+        de_refs = ctx.enabled_de ? Int[
+            _push_problem!(
+                problems,
+                _group_problem(prepared, group, model.primary_terms, model.window_length),
+            ) for group in ctx.de_groups
+        ] : Int[]
+        cd_refs = ctx.enabled_cd ? Int[
+            _push_problem!(
+                problems,
+                _directed_problem(
+                    prepared,
+                    target,
+                    source,
+                    target,
+                    model.primary_terms,
+                    model.window_length,
+                ),
+            ) for (target, source) in ctx.cd_pairs
+        ] : Int[]
+        sy_forward = ctx.enabled_sy ? Int[
+            _push_problem!(
+                problems,
+                _directed_problem(
+                    prepared,
+                    left,
+                    right,
+                    right,
+                    model.primary_terms,
+                    model.window_length,
+                ),
+            ) for (left, right) in ctx.sy_pairs
+        ] : Int[]
+        sy_reverse = ctx.enabled_sy ? Int[
+            _push_problem!(
+                problems,
+                _directed_problem(
+                    prepared,
+                    right,
+                    left,
+                    left,
+                    model.primary_terms,
+                    model.window_length,
+                ),
+            ) for (left, right) in ctx.sy_pairs
+        ] : Int[]
+        push!(references, WindowProblemRefs(st_refs, ct_refs, de_refs, cd_refs, sy_forward, sy_reverse))
+    end
 
-        solutions = _solve_problems(problems, device)
-        for (offset, refs) in enumerate(references)
-            window = first_window + offset - 1
-            if st_matrix !== nothing
-                for (row, channel) in enumerate(selected_channels)
-                    block = _block(solutions, refs.st[channel], feature_count)
-                    !isempty(block.coefficients) && (st_matrix[row, window] = block.coefficients[1])
-                end
+    return problems, references
+end
+
+function _dda_unpack!(ctx, solutions, references, first_window)
+    feature_count = ctx.feature_count
+    for (offset, refs) in enumerate(references)
+        window = first_window + offset - 1
+        if ctx.st_matrix !== nothing
+            for (row, channel) in enumerate(ctx.selected_channels)
+                block = _block(solutions, refs.st[channel], feature_count)
+                !isempty(block.coefficients) && (ctx.st_matrix[row, window] = block.coefficients[1])
             end
-            if ct_matrix !== nothing
-                for row in eachindex(ct_groups)
-                    block = _block(solutions, refs.ct[row], feature_count)
-                    !isempty(block.coefficients) && (ct_matrix[row, window] = block.coefficients[1])
-                end
+        end
+        if ctx.ct_matrix !== nothing
+            for row in eachindex(ctx.ct_groups)
+                block = _block(solutions, refs.ct[row], feature_count)
+                !isempty(block.coefficients) && (ctx.ct_matrix[row, window] = block.coefficients[1])
             end
-            if de_matrix !== nothing
-                for row in eachindex(de_groups)
-                    block = _block(solutions, refs.de[row], feature_count)
-                    de_matrix[row, window] = _de_value(
-                        de_groups[row], refs.st, solutions, block.rmse, feature_count
-                    )
-                end
+        end
+        if ctx.de_matrix !== nothing
+            for row in eachindex(ctx.de_groups)
+                block = _block(solutions, refs.de[row], feature_count)
+                ctx.de_matrix[row, window] = _de_value(
+                    ctx.de_groups[row], refs.st, solutions, block.rmse, feature_count
+                )
             end
-            if cd_matrix !== nothing
-                for (row, (target, _)) in enumerate(cd_pairs)
-                    baseline = _block(solutions, refs.st[target], feature_count).rmse
-                    directed = _block(solutions, refs.cd[row], 2feature_count).rmse
-                    cd_matrix[row, window] = _causal_improvement(baseline, directed)
-                end
+        end
+        if ctx.cd_matrix !== nothing
+            for (row, (target, _)) in enumerate(ctx.cd_pairs)
+                baseline = _block(solutions, refs.st[target], feature_count).rmse
+                directed = _block(solutions, refs.cd[row], 2feature_count).rmse
+                ctx.cd_matrix[row, window] = _causal_improvement(baseline, directed)
             end
-            if sy_matrix !== nothing
-                for row in eachindex(sy_pairs)
-                    forward = _block(solutions, refs.sy_forward[row], 2feature_count).rmse
-                    reverse = _block(solutions, refs.sy_reverse[row], 2feature_count).rmse
-                    sy_matrix[row, window] = _synchronization_value(forward, reverse)
-                end
+        end
+        if ctx.sy_matrix !== nothing
+            for row in eachindex(ctx.sy_pairs)
+                forward = _block(solutions, refs.sy_forward[row], 2feature_count).rmse
+                reverse = _block(solutions, refs.sy_reverse[row], 2feature_count).rmse
+                ctx.sy_matrix[row, window] = _synchronization_value(forward, reverse)
             end
         end
     end
+    return nothing
+end
 
+function _dda_results(ctx)
     results = NativeFlavorResult[]
-    st_matrix !== nothing && push!(results, NativeFlavorResult(
-        "ST", "Single Timeseries (ST)", st_matrix,
-        _channel_labels(labels, selected_channels), markers,
+    ctx.st_matrix !== nothing && push!(results, NativeFlavorResult(
+        "ST", "Single Timeseries (ST)", ctx.st_matrix,
+        _channel_labels(ctx.labels, ctx.selected_channels), ctx.markers,
     ))
-    ct_matrix !== nothing && push!(results, NativeFlavorResult(
-        "CT", "Cross-Timeseries (CT)", ct_matrix,
-        _group_labels(labels, ct_groups, "-"), markers,
+    ctx.ct_matrix !== nothing && push!(results, NativeFlavorResult(
+        "CT", "Cross-Timeseries (CT)", ctx.ct_matrix,
+        _group_labels(ctx.labels, ctx.ct_groups, "-"), ctx.markers,
     ))
-    cd_matrix !== nothing && push!(results, NativeFlavorResult(
-        "CD", "Cross-Dynamical (CD)", cd_matrix,
-        _pair_labels(labels, cd_pairs, " <- "), markers,
+    ctx.cd_matrix !== nothing && push!(results, NativeFlavorResult(
+        "CD", "Cross-Dynamical (CD)", ctx.cd_matrix,
+        _pair_labels(ctx.labels, ctx.cd_pairs, " <- "), ctx.markers,
     ))
-    de_matrix !== nothing && push!(results, NativeFlavorResult(
-        "DE", "Dynamical Ergodicity (DE)", de_matrix,
-        _group_labels(labels, de_groups, "-"), markers,
+    ctx.de_matrix !== nothing && push!(results, NativeFlavorResult(
+        "DE", "Dynamical Ergodicity (DE)", ctx.de_matrix,
+        _group_labels(ctx.labels, ctx.de_groups, "-"), ctx.markers,
     ))
-    sy_matrix !== nothing && push!(results, NativeFlavorResult(
-        "SY", "Synchronization (SY)", sy_matrix,
-        _pair_labels(labels, sy_pairs, " <-> "), markers,
+    ctx.sy_matrix !== nothing && push!(results, NativeFlavorResult(
+        "SY", "Synchronization (SY)", ctx.sy_matrix,
+        _pair_labels(ctx.labels, ctx.sy_pairs, " <-> "), ctx.markers,
     ))
-    return NativeDDAResult(results, markers, labels)
+    return NativeDDAResult(results, ctx.markers, ctx.labels)
 end
 
 function _sliding_groups(channels::Vector{Int}, window_length, window_step)::Vector{Vector{Int}}

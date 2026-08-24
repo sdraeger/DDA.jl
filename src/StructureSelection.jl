@@ -9,11 +9,15 @@ using ..ModelEncoding: generate_monomials, model_matrix_to_encoding
 using ..Runner
 using ..Runner: run_DDA
 
+"""A model candidate: `-MODEL` indices, or a monomial matrix row-wise encoded."""
+const ModelCandidate = Union{AbstractVector{Int}, AbstractMatrix{Int}}
+
 """One evaluated structure-selection candidate."""
 struct StructureSelectionTrial
-    model::Any
+    model::ModelCandidate
     delays::Vector{Int}
     score::Float64
+    # Live DDAResults from the one-shot API, cached-output stubs from select.
     result::Any
     out_fn::Union{String, Nothing}
     tau_file::Union{String, Nothing}
@@ -24,7 +28,7 @@ StructureSelectionTrial(model, delays, score, result, out_fn) =
 
 """Result returned by `structure_selection`."""
 struct StructureSelectionResult
-    best_model::Any
+    best_model::ModelCandidate
     best_delays::Vector{Int}
     best_score::Float64
     best_result::Any

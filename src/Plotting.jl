@@ -10,7 +10,8 @@ using ..OptionalDeps
 # =============================================================================
 # Lazy Plots.jl loading
 # =============================================================================
-
+# invokelatest is REQUIRED below: Plots' methods are defined after this
+# module precompiles, so direct calls would raise world-age errors.
 _ensure_plots()::Module = OptionalDeps.require(:Plots)
 
 _entity_labels(result::STResult) = result.channel_labels

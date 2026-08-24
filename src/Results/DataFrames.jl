@@ -1,4 +1,6 @@
 # DataFrame conversion with a lazy DataFrames.jl import.
+# invokelatest below is required: DataFrames methods are defined after
+# this module precompiles (world-age).
 
 import ..OptionalDeps
 

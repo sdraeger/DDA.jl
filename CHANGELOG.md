@@ -54,6 +54,12 @@
 
 ### Changed
 
+- `StructureSelectionTrial.model` and `StructureSelectionResult.best_model`
+  are typed as `Union{AbstractVector{Int}, AbstractMatrix{Int}}` instead of
+  `Any`; `result`/`best_result` remain flexible by design.
+- `run_dda_matrix` internals split into context/window-batch/unpack/assembly
+  stages; numerics are unchanged (parity fixture passes unchanged).
+
 - p-values in `compare_windows` come from HypothesisTests.jl (replacing ~180
   lines of hand-rolled numerics); returned statistics keep their meaning.
 - The binary command is built once per run; runner failures propagate the
