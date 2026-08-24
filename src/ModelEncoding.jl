@@ -8,7 +8,7 @@ module ModelEncoding
 using Printf
 
 """
-    generate_monomials(num_delays, polynomial_order) -> Vector{NTuple{N,Int}}
+    generate_monomials(num_delays, polynomial_order) -> Vector{Vector{Int}}
 
 Generate all non-decreasing tuples of length `polynomial_order` with values
 in `{0, 1, ..., num_delays}`, excluding the all-zeros tuple.
@@ -19,7 +19,7 @@ value k > 0 = x(t - τ_k).
 # Examples
 ```julia
 generate_monomials(2, 2)
-# [(0, 1), (0, 2), (1, 1), (1, 2), (2, 2)]
+# [[0, 1], [0, 2], [1, 1], [1, 2], [2, 2]]
 ```
 """
 function generate_monomials(num_delays::Int, polynomial_order::Int)::Vector{Vector{Int}}

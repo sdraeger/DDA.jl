@@ -78,20 +78,7 @@ function _run_file_flavor(
     return variants[variant]
 end
 
-"""
-    run_st(; file_path, channels, kwargs...) -> STResult
-
-Run single-timeseries DDA directly on an EDF or ASCII file using 1-based channel indices.
-
-Important keywords:
-- `binary_path`: resolve the DDA binary without relying on environment variables
-- `model`: optional custom model passed to `-MODEL` as indices, or as matrix rows mapped to indices
-- `derivative_points`: preferred name for binary `-dm` (the `dm` alias is deprecated)
-- Passing a custom `model` also requires explicit `derivative_points` and `order`
-- `TM`: optional offset used only to compute `result.t`; defaults to `max(delays)`
-- `out_fn`: optional `-OUT_FN` base; defaults to a temporary path for the call
-- `sampling_rate`: optional value passed to `-SR`. A scalar emits `-SR N`; a tuple emits `-SR N1 N2`; `nothing` emits no `-SR`
-"""
+"""Internal implementation of [`run_st`](@ref); see it for documentation."""
 function _run_st_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
@@ -157,11 +144,7 @@ function _run_st_file(
     )
 end
 
-"""
-    run_ct(; file_path, channels, kwargs...) -> CTResult
-
-Run cross-timeseries DDA directly on an EDF or ASCII file using 1-based channel indices.
-"""
+"""Internal implementation of [`run_ct`](@ref); see it for documentation."""
 function _run_ct_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
@@ -238,11 +221,7 @@ function _run_ct_file(
     )
 end
 
-"""
-    run_de(; file_path, channels, kwargs...) -> DEResult
-
-Run dynamical-ergodicity DDA directly on an EDF or ASCII file using 1-based channel indices.
-"""
+"""Internal implementation of [`run_de`](@ref); see it for documentation."""
 function _run_de_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
