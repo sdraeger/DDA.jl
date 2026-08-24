@@ -346,7 +346,7 @@ const CT_REQUIRING_VARIANTS = ["CT", "CD", "DE"]
         @test RESERVED.position == 3
 
         @test DE.abbreviation == "DE"
-        @test DE.name == "Delay Embedding"
+        @test DE.name == "Dynamical Ergodicity"
         @test DE.position == 4
 
         @test SY.abbreviation == "SY"

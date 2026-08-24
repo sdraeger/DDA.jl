@@ -6,8 +6,6 @@ module DDADefaults
     const NUM_TAU = 2
     const WL = nothing
     const WS = nothing
-    const WINDOW_LENGTH = WL
-    const WINDOW_STEP = WS
-    const DELAYS = (7, 10)
+    const DELAYS = [7, 10]
     const SAMPLING_RATE = nothing
 end

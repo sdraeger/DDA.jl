@@ -5,14 +5,15 @@
 """
     parse_output_file_structured(filepath, stride) -> Vector{StructuredChannelData}
 
-Parse a DDA output file extracting ALL coefficients and errors per stride group.
+Parse a DDA output file into per-channel/pair timepoint series.
 
-Each row format: `window_start window_end [stride values per channel]*`
+Each row format: `window_start window_end [stride values per group]*`
 For stride=4 (ST/CT): 3 coefficients + 1 error per channel.
 For stride=2 (CD): 1 coefficient + 1 error per directed pair.
-For stride=1 (DE/SY): 1 value (ergodicity/synchronization measure).
+For stride=1 (DE/SY): a single measure, stored in `.value` (it is an
+ergodicity/synchronization measure, not an error).
 """
-function _read_numeric_rows(filepath::String)::Vector{Vector{Float64}}
+function _read_numeric_rows(filepath::AbstractString)::Vector{Vector{Float64}}
     data_rows = Vector{Vector{Float64}}()
     open(filepath) do io
         for line in eachline(io)

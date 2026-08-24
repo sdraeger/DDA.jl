@@ -46,7 +46,6 @@ function _make_params(;
         "WL" => WL,
         "WS" => WS,
         "derivative_points" => derivative_points,
-        "dm" => derivative_points,
         "TM" => TM,
         "order" => order,
         "nr_tau" => nr_tau,

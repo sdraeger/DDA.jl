@@ -3,7 +3,9 @@
 
 Run the pure Julia DDA engine on a `samples × channels` matrix. Channel and
 pair indices are 1-based. `device` accepts `"cpu"`, `"cuda"`, or `"cuda:N"`.
-CUDA.jl is loaded only when a CUDA device is requested.
+CUDA.jl is loaded only when a CUDA device is requested. SY evaluates
+consecutive channel pairs `(ch₁, ch₂), (ch₃, ch₄), …`; an odd trailing
+channel is left unpaired.
 """
 function run_dda_matrix(
     samples::AbstractMatrix{<:Real};
@@ -284,6 +286,8 @@ function _resolve_cd_pairs(channels, pairs, channel_count)::Vector{Tuple{Int,Int
     ]
 end
 
+"""SY evaluates consecutive channel pairs `(ch₁, ch₂), (ch₃, ch₄), …`;
+an odd trailing channel is left unpaired."""
 function _sy_pairs(channels::Vector{Int})::Vector{Tuple{Int,Int}}
     return Tuple{Int,Int}[
         (channels[index], channels[index + 1]) for index in 1:2:(length(channels) - 1)

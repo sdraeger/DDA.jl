@@ -43,6 +43,15 @@
 - `OptionalDeps`-backed lazy loading: Plots, DataFrames, and CUDA are only
   loaded when used. Plots is no longer installed automatically.
 
+### Fixed
+
+- `Flavors.DE.name` is "Dynamical Ergodicity", matching every other surface
+  (was inconsistently "Delay Embedding").
+- `generate_monomials` docstring documents its actual `Vector{Vector{Int}}`
+  return type; parser docs describe the stride-1 `.value` measure.
+- Exported `run_st` / `run_ct` / `run_de` carry full docstrings (previously
+  only private implementations were documented).
+
 ### Changed
 
 - p-values in `compare_windows` come from HypothesisTests.jl (replacing ~180

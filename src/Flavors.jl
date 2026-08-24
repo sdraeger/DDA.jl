@@ -157,11 +157,7 @@ end
 # =============================================================================
 
 
-"""
-Single Timeseries (ST) - Position 0
-
-Analyzes individual channels independently. Most basic variant. One result row per channel.
-"""
+"""`VariantMetadata` for Single Timeseries (ST), SELECT position 0. See `documentation`."""
 const ST = VariantMetadata(
     "ST",
     "Single Timeseries",
@@ -180,11 +176,7 @@ const ST = VariantMetadata(
 )
 
 
-"""
-Cross-Timeseries (CT) - Position 1
-
-Analyzes relationships between channel pairs. Symmetric: pair (1,2) equals (2,1). When enabled with ST, wrapper must run CT pairs separately.
-"""
+"""`VariantMetadata` for Cross-Timeseries (CT), SELECT position 1. See `documentation`."""
 const CT = VariantMetadata(
     "CT",
     "Cross-Timeseries",
@@ -203,11 +195,7 @@ const CT = VariantMetadata(
 )
 
 
-"""
-Cross-Dynamical (CD) - Position 2
-
-Analyzes directed causal relationships. Asymmetric: (1->2) differs from (2->1). CD is independent (no longer requires ST+CT).
-"""
+"""`VariantMetadata` for Cross-Dynamical (CD), SELECT position 2. See `documentation`."""
 const CD = VariantMetadata(
     "CD",
     "Cross-Dynamical",
@@ -226,11 +214,7 @@ const CD = VariantMetadata(
 )
 
 
-"""
-Reserved (RESERVED) - Position 3
-
-Internal development function. Should always be set to 0 in production.
-"""
+"""`VariantMetadata` for Reserved (RESERVED), SELECT position 3. See `documentation`."""
 const RESERVED = VariantMetadata(
     "RESERVED",
     "Reserved",
@@ -249,14 +233,10 @@ const RESERVED = VariantMetadata(
 )
 
 
-"""
-Delay Embedding (DE) - Position 4
-
-Tests for ergodic behavior in dynamical systems. Produces single aggregate measure per time window (not per-channel).
-"""
+"""`VariantMetadata` for Dynamical Ergodicity (DE), SELECT position 4. See `documentation`."""
 const DE = VariantMetadata(
     "DE",
-    "Delay Embedding",
+    "Dynamical Ergodicity",
     4,
     "_DE",
     1,
@@ -272,11 +252,7 @@ const DE = VariantMetadata(
 )
 
 
-"""
-Synchronization (SY) - Position 5
-
-Detects synchronized behavior between signals. Produces one value per channel/measure per time window.
-"""
+"""`VariantMetadata` for Synchronization (SY), SELECT position 5. See `documentation`."""
 const SY = VariantMetadata(
     "SY",
     "Synchronization",
@@ -410,8 +386,8 @@ end
 # DELAYS
 # =============================================================================
 
-"""Default delay values (integers). Single source: `DDADefaults.DELAYS`."""
-const DEFAULT_DELAYS = collect(DDADefaults.DELAYS)
+"""Default delay values. Single source: `DDADefaults.DELAYS` (copied on use)."""
+const DEFAULT_DELAYS = copy(DDADefaults.DELAYS)
 
 # =============================================================================
 # FILE TYPES
