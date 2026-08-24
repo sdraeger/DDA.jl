@@ -20,7 +20,9 @@ function _two_delay_plot_candidates(
     channels::AbstractVector{<:Integer},
 )
     P_DDA = _p_dda(run.DDAorder; nr_delays=run.nr_delays)
-    candidates = []
+    candidates = Vector{@NamedTuple{model_number::Int, symmetry::Int,
+        tau_rows::Vector{Vector{Int}}, T::Vector{Float64},
+        errors::Array{Float64,3}}}()
     for model_number in model_numbers
         model = _model_from_MOD_row(run.MOD, model_number)
         candidate = _pool_candidate(

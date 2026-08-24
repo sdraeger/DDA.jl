@@ -38,7 +38,6 @@ function _make_params(;
     sampling_rate,
     channels::Union{Vector{Int}, Nothing}=nothing,
     out_fn::Union{String, Nothing}=nothing,
-    extra::Dict{String, Any}=Dict{String, Any}(),
 )::Dict{String, Any}
     params = Dict{String, Any}(
         "delays" => Int[delays...],
@@ -53,7 +52,6 @@ function _make_params(;
         "out_fn" => out_fn,
     )
     channels !== nothing && (params["channels"] = copy(channels))
-    merge!(params, extra)
     return params
 end
 

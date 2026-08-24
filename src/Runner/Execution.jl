@@ -10,7 +10,7 @@ end
 function _reject_request_keyword_conflict(; file_path, channels, flavors, kwargs...)
     isempty(kwargs) || error(
         "Pass either `request` or individual analysis keywords, not both; " *
-        "unexpected keyword(s): $(join(string.(first.(collect(pairs(kwargs)))), ", "))",
+        "unexpected keyword(s): $(join(string.(keys(kwargs)), ", "))",
     )
     (file_path === nothing && channels === nothing && flavors === nothing) || error(
         "Pass either `request` or analysis keywords (`file_path`, `channels`, `flavors`), not both",
