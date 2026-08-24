@@ -103,10 +103,6 @@ export DEFAULT_DELAYS
 export requires_ct_params, SelectMaskPositions
 export FileType, EDF, ASCII, get_flag, file_type_from_extension
 
-# --- Defaults (parameter constants) ---
-include("Defaults.jl")
-using .DDADefaults
-
 # --- Model encoding ---
 include("ModelEncoding.jl")
 using .ModelEncoding: generate_monomials, model_matrix_to_encoding,

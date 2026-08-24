@@ -76,6 +76,10 @@ function DDAResult(
     delay_params::DelayParameters,
     created_at::Dates.DateTime,
 )
+    Base.depwarn(
+        "Constructing `DDAResult` without `t` is deprecated; pass the derived t axis explicitly.",
+        :DDAResult,
+    )
     t = isempty(variant_results) ? Float64[] : first(variant_results).t
     return DDAResult(
         id,
