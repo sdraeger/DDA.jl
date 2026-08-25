@@ -53,6 +53,7 @@ function _run_file_flavor(
     TM::Int,
     out_fn::Union{String, Nothing},
     binary_path::Union{String, Nothing},
+    input_format=nothing,
 )::Runner.VariantResultData
     runner = DDARunner(; binary_path=binary_path)
     request = DDARequest(
@@ -71,6 +72,7 @@ function _run_file_flavor(
         sampling_rate=sampling_rate,
         TM=TM,
         out_fn=out_fn,
+        input_format=input_format,
     )
     variants = Runner._run_and_parse(runner, request)
     variant = findfirst(v -> v.variant_id == flavor, variants)
@@ -82,6 +84,7 @@ end
 function _run_st_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
+    input_format=nothing,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
@@ -114,6 +117,7 @@ function _run_st_file(
         file_path,
         ctx.selected_channels,
         "ST";
+        input_format=input_format,
         WL=WL,
         WS=WS,
         delays=delays,
@@ -148,6 +152,7 @@ end
 function _run_ct_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
+    input_format=nothing,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
@@ -187,6 +192,7 @@ function _run_ct_file(
             file_path,
             pair_channels,
             "CT";
+            input_format=input_format,
             WL=WL,
             WS=WS,
             ct_wl=ct_wl,
@@ -225,6 +231,7 @@ end
 function _run_de_file(
     file_path::AbstractString,
     channels::AbstractVector{<:Integer};
+    input_format=nothing,
     delays::AbstractVector{<:Integer}=collect(DDADefaults.DELAYS),
     model::Runner.OptionalModelSpec=nothing,
     WL::Union{Int, Nothing}=DDADefaults.WL,
@@ -259,6 +266,7 @@ function _run_de_file(
         file_path,
         ctx.selected_channels,
         "DE";
+        input_format=input_format,
         WL=WL,
         WS=WS,
         ct_wl=ct_wl,
