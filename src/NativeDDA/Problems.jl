@@ -14,6 +14,18 @@ function _evaluate_term(
     return product
 end
 
+# Per-thread scratch matrices, reused across windows so that problem
+# construction stops allocating fresh design/target arrays every time.
+# Stored problems always own a trimmed copy, never a view of the scratch.
+const _PROBLEM_SCRATCH = [Dict{Tuple{Int,Int},Matrix{Float64}}() for _ in 1:(Threads.nthreads())]
+
+@inline function _scratch_matrix(key::Tuple{Int,Int}, dims)::Matrix{Float64}
+    store = _PROBLEM_SCRATCH[Threads.threadid()]
+    return get!(store, key) do
+        Matrix{Float64}(undef, dims)
+    end
+end
+
 function _group_problem(
     prepared::PreparedWindow,
     channels::Vector{Int},
@@ -22,22 +34,28 @@ function _group_problem(
 )::Union{RegressionProblem,Nothing}
     total_rows = length(channels) * window_length
     total_rows == 0 && return nothing
-    design = Matrix{Float64}(undef, total_rows, length(terms))
-    target = Vector{Float64}(undef, total_rows)
+    n_terms = length(terms)
+    design = _scratch_matrix((total_rows, n_terms), (total_rows, n_terms))
+    target = _scratch_matrix((total_rows, 1), (total_rows, 1))
+    tvec = @view target[:, 1]
     valid_rows = 0
 
     for channel in channels, sample in 1:window_length
         target_value = prepared.derivative[channel, sample]
         isnan(target_value) && continue
-        values = Float64[_evaluate_term(prepared, channel, sample, term) for term in terms]
-        any(isnan, values) && continue
+        ok = true
+        @inbounds for c in eachindex(terms)
+            v = _evaluate_term(prepared, channel, sample, terms[c])
+            isnan(v) && (ok = false; break)
+            design[valid_rows + 1, c] = v
+        end
+        ok || continue
         valid_rows += 1
-        design[valid_rows, :] = values
-        target[valid_rows] = target_value
+        tvec[valid_rows] = target_value
     end
     valid_rows / total_rows >= 0.60 || return nothing
-    values = copy(target[1:valid_rows])
-    return RegressionProblem(copy(design[1:valid_rows, :]), values, copy(values))
+    values = copy(@view tvec[1:valid_rows])
+    return RegressionProblem(copy(@view design[1:valid_rows, :]), values, copy(values))
 end
 
 function _directed_problem(
@@ -49,34 +67,38 @@ function _directed_problem(
     window_length::Int,
 )::Union{RegressionProblem,Nothing}
     feature_count = 2length(terms)
-    design = Matrix{Float64}(undef, window_length, feature_count)
-    fit_target = Vector{Float64}(undef, window_length)
-    residual_target = Vector{Float64}(undef, window_length)
+    design = _scratch_matrix((window_length, feature_count), (window_length, feature_count))
+    targets = _scratch_matrix((window_length, 2), (window_length, 2))
+    fit_vec = @view targets[:, 1]
+    res_vec = @view targets[:, 2]
     valid_rows = 0
+    n_sec = length(terms)
 
     for sample in 1:window_length
         fit_value = prepared.derivative[primary_channel, sample]
         isnan(fit_value) && continue
-        secondary = Float64[
-            _evaluate_term(prepared, secondary_channel, sample, term)
-            for term in terms
-        ]
-        any(isnan, secondary) && continue
-        primary = Float64[
-            _evaluate_term(prepared, primary_channel, sample, term)
-            for term in terms
-        ]
-        any(isnan, primary) && continue
+        ok = true
+        @inbounds for c in eachindex(terms)
+            v = _evaluate_term(prepared, secondary_channel, sample, terms[c])
+            isnan(v) && (ok = false; break)
+            design[valid_rows + 1, c] = v
+        end
+        ok || continue
+        @inbounds for c in eachindex(terms)
+            v = _evaluate_term(prepared, primary_channel, sample, terms[c])
+            isnan(v) && (ok = false; break)
+            design[valid_rows + 1, n_sec + c] = v
+        end
+        ok || continue
         valid_rows += 1
-        design[valid_rows, :] = vcat(secondary, primary)
-        fit_target[valid_rows] = fit_value
-        residual_target[valid_rows] = prepared.derivative[response_channel, sample]
+        fit_vec[valid_rows] = fit_value
+        res_vec[valid_rows] = prepared.derivative[response_channel, sample]
     end
     valid_rows / window_length >= 0.60 || return nothing
     return RegressionProblem(
-        copy(design[1:valid_rows, :]),
-        copy(fit_target[1:valid_rows]),
-        copy(residual_target[1:valid_rows]),
+        copy(@view design[1:valid_rows, :]),
+        copy(@view fit_vec[1:valid_rows]),
+        copy(@view res_vec[1:valid_rows]),
     )
 end
 
