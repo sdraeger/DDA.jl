@@ -159,6 +159,8 @@ function _dda_context(
         (enabled_cd ? length(cd_pairs) : 0) +
         (enabled_sy ? 2length(sy_pairs) : 0)
     windows_per_batch = max(1, min(32, div(2048, max(jobs_per_window, 1))))
+    env_batch = get(ENV, "DDA_JL_BATCH", nothing)
+    env_batch === nothing || (windows_per_batch = max(1, parse(Int, env_batch)))
 
     return (
         data=data,

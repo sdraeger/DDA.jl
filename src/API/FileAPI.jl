@@ -185,10 +185,15 @@ function _run_ct_file(
     length(ctx.selected_channels) >= 2 || error("CT analysis requires at least 2 channels, got $(length(ctx.selected_channels))")
 
     pair_labels = Runner._pair_labels(ctx.labels)
-    raw_pairs = VariantResultData[]
+    pair_sets = _pair_channel_sets(ctx.selected_channels)
+    raw_pairs = Vector{VariantResultData}(undef, length(pair_sets))
 
-    for pair_channels in _pair_channel_sets(ctx.selected_channels)
-        variant = _run_file_flavor(
+    # Pairs are independent runs; parallelize across available threads.
+    # Each pair gets its own output base so concurrent binaries never share files.
+    Threads.@threads :dynamic for i in eachindex(pair_sets)
+        pair_channels = pair_sets[i]
+        out_fn_i = out_fn === nothing ? nothing : "$(out_fn)_pair$(i)"
+        raw_pairs[i] = _run_file_flavor(
             file_path,
             pair_channels,
             "CT";
@@ -204,10 +209,9 @@ function _run_ct_file(
             nr_tau=nr_tau,
             sampling_rate=ctx.sampling_rate,
             TM=ctx.TM,
-            out_fn=out_fn,
+            out_fn=out_fn_i,
             binary_path=binary_path,
         )
-        push!(raw_pairs, variant)
     end
 
     return _ct_from_raw(

@@ -155,16 +155,26 @@ function run_batch(
         run_kwargs[k] = v
     end
 
-    results = []
-    for (i, filepath) in enumerate(files)
+    results = Vector{Any}(undef, length(files))
+    parallel = Threads.nthreads() > 1 && length(files) > 1
+
+    process = function(i)
+        filepath = files[i]
         progress && println("[$i/$(length(files))] Processing $filepath")
         data = if load_func !== nothing
-            load_func(filepath)
+            load_func(filepath)          # assumed thread-safe when provided
         else
             _load_ascii(filepath)
         end
-        result = run_fn(; data=data, run_kwargs...)
-        push!(results, result)
+        results[i] = run_fn(; data=data, run_kwargs...)
+    end
+
+    if parallel
+        Threads.@threads :dynamic for i in eachindex(files)
+            process(i)
+        end
+    else
+        foreach(process, eachindex(files))
     end
 
     return results
